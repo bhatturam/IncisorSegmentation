@@ -23,18 +23,7 @@ class GreyModel:
     def size(self):
         return len(self._models)
 
-    def fit_quality(self, point_index, model_factors, test_image, test_shape):
-        model_patch = self.generate_grey(point_index, model_factors)
-        test_patch = self._get_normal_grey_levels_for_single_point_single_image(test_image, test_shape, point_index)
-        return cv2.Mahalanobis(model_patch, test_patch,
-                               np.linalg.pinv(cv2.calcCovarMatrix(np.concatenate((model_patch, test_patch)), 1)))
-
-    def _get_point_normal_slope(self, shape, point_index):
-        neighborhood = shape.get_neighborhood(point_index, self._normal_neighborhood)
-        line = cv2.fitLine(np.int32(neighborhood), 2, 0, 0.01, 0.01)
-        return np.squeeze(np.array([-line[1], line[0]]) / math.sqrt(np.sum(line[0:2] ** 2)))
-
-    def _get_point_normal_pixel_coordinates_train(self, shape, point_index):
+    def _get_point_normal_pixel_coordinates(self, shape, point_index):
         """
         Get the coordinates of pixels lying on the normal of the point
         :param shape:
@@ -42,25 +31,24 @@ class GreyModel:
         :return:
         """
         point = shape.get_point(point_index)
-        slope = self._get_point_normal_slope(shape, point_index)
-        coordinate_list = []
-        for increment in range(-self._number_of_pixels, self._number_of_pixels + 1):
-            normal_point = np.int32(np.round(point + increment * slope))
-            coordinate_list.append(np.array(normal_point))
-        return coordinate_list
+        neighborhood = shape.get_neighborhood(point_index, self._normal_neighborhood)
+        line = cv2.fitLine(neighborhood, cv2.DIST_L2, 0, 0.01, 0.01)
+        slope = line[0:2] / math.sqrt(np.sum(line[0:2] ** 2))
+        return [[int(point[1] + (incr * slope[0]) + 0.5), int(point[0] - (incr * slope[1]) + 0.5)] for incr in
+                range(-self._number_of_pixels, self._number_of_pixels + 1)]
 
     def _get_normal_grey_levels_for_single_point_single_image(self, image, shape, point_index):
-        coordinate_list = self._get_point_normal_pixel_coordinates_train(shape, point_index)
+        coordinate_list = self._get_point_normal_pixel_coordinates(shape, point_index)
         data = np.zeros((2 * self._number_of_pixels + 1,), dtype=float)
         ctr = 0
         h, w = image.shape
         for coordinates in coordinate_list:
-            if 0 <= coordinates[1] < h and 0 <= coordinates[0] < w:
-                data[ctr] = image[coordinates[1]][coordinates[0]]
+            if 0 <= coordinates[0] < h and 0 <= coordinates[1] < w:
+                data[ctr] = image[coordinates[0]][coordinates[1]]
             ctr += 1
         return data
 
-    def get_point_grey_model(self, point_index):
+    def getModel(self, point_index):
         return self._models[point_index]
 
     def generate_grey(self, point_index, factors):
@@ -75,10 +63,9 @@ class GreyModel:
         """
         return self._models[point_index].mean() + self._models[point_index].generate_deviation(factors)
 
-    def mode_greys(self, point_index, m):
+    def mode_greys(self, point_index,m):
         """
         Returns the modal grey levels of the model (Variance limits)
-        :param point_index: The index of the landmark
         :param m: A list of vectors containing the modal greys
         """
         if m < 0 or m >= self._models[point_index].modes():
@@ -87,24 +74,19 @@ class GreyModel:
         mode_greys = []
         for i in range(-1, 2):
             factors[m] = i
-            mode_greys.append(self.generate_grey(point_index, factors))
+            mode_greys.append(self.generate_grey(point_index,factors))
         return mode_greys
 
-    def __init__(self, images, shapes, number_of_pixels=5, pca_variance_captured=0.9, normal_point_neighborhood=4,
-                 use_gradient=False, normalize=False):
+    def __init__(self, images, shapes, number_of_pixels=5, pca_variance_captured=0.9, normal_point_neighborhood=4,use_gradient=False):
         self._normal_neighborhood = normal_point_neighborhood
         self._number_of_pixels = number_of_pixels
-        self._normalize = normalize
-        self._use_gradient = use_gradient
         self._models = []
         for i in range(shapes[0].size()):
             plist = []
             for j in range(len(images)):
                 levels = self._get_normal_grey_levels_for_single_point_single_image(images[j], shapes[j], i)
-                if self._use_gradient:
-                    levels = np.diff(levels)
-                if self._normalize:
-                    levels = np.divide(levels, np.sqrt(np.sum(levels ** 2)))
+                if use_gradient:
+                    pdata = np.diff(levels)
                 plist.append(levels)
-            pdata = np.array(plist)
+            pdata=np.array(plist)
             self._models.append(ModedPCAModel(pdata, pca_variance_captured))
