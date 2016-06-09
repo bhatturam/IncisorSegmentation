@@ -21,43 +21,39 @@ class GreyModel:
     """
 
     def size(self):
+        """
+        Returns the number of grey point models - i.e the number of landmarks
+        :return: Number of point models
+        """
         return len(self._models)
 
-    def fit_quality(self, point_index, model_factors, test_image, test_shape):
-        model_patch = self.generate_grey(point_index, model_factors)
-        test_patch = self._get_normal_grey_levels_for_single_point_single_image(test_image, test_shape, point_index)
-        return cv2.Mahalanobis(model_patch, test_patch,
-                               np.linalg.pinv(cv2.calcCovarMatrix(np.concatenate((model_patch, test_patch)), 1)))
+    # def fit_quality(self, point_index, model_factors, test_image, test_shape):
+    #    model_patch = self.generate_grey(point_index, model_factors)
+    #    test_patch = self._get_normal_grey_levels_for_single_point_single_image(test_image, test_shape, point_index)
+    #    return cv2.Mahalanobis(model_patch, test_patch,
+    #                           np.linalg.pinv(cv2.calcCovarMatrix(np.concatenate((model_patch, test_patch)), 1)))
 
-    def _get_point_normal_slope(self, shape, point_index):
-        neighborhood = shape.get_neighborhood(point_index, self._normal_neighborhood)
-        line = cv2.fitLine(np.int32(neighborhood), 2, 0, 0.01, 0.01)
-        return np.squeeze(np.array([-line[1], line[0]]) / math.sqrt(np.sum(line[0:2] ** 2)))
-
-    def _get_point_normal_pixel_coordinates_train(self, shape, point_index):
+    def _get_grey_data(self, image, shape, point_index, number_of_pixels):
         """
-        Get the coordinates of pixels lying on the normal of the point
-        :param shape:
-        :param point_index:
-        :return:
+        Get the grey level data for the given image and shape for the specified landmark
+        :param image: The actual grayscale image
+        :param shape: The current shape
+        :param point_index: The query point index in shape
+        :return: A vector of grey level data number_of_pixels wide
         """
-        point = shape.get_point(point_index)
-        slope = self._get_point_normal_slope(shape, point_index)
-        coordinate_list = []
-        for increment in range(-self._number_of_pixels, self._number_of_pixels + 1):
-            normal_point = np.int32(np.round(point + increment * slope))
-            coordinate_list.append(np.array(normal_point))
-        return coordinate_list
-
-    def _get_normal_grey_levels_for_single_point_single_image(self, image, shape, point_index):
-        coordinate_list = self._get_point_normal_pixel_coordinates_train(shape, point_index)
-        data = np.zeros((2 * self._number_of_pixels + 1,), dtype=float)
+        data = np.zeros((2 * number_of_pixels + 1,), dtype=float)
         ctr = 0
         h, w = image.shape
-        for coordinates in coordinate_list:
+        generator = shape.get_normal_at_point_generator(point_index, self._normal_neighborhood)
+        for increment in range(-number_of_pixels, number_of_pixels + 1):
+            coordinates = np.int32(np.round(generator(increment)))
             if 0 <= coordinates[1] < h and 0 <= coordinates[0] < w:
-                data[ctr] = image[coordinates[1]][coordinates[0]]
+                data[ctr] = image[coordinates[1]][coordinates[0]]  # opencv y x problems
             ctr += 1
+        if self._use_gradient:
+            data = np.diff(data)
+        if self._normalize:
+            data = np.divide(data, np.sqrt(np.sum(data ** 2)))
         return data
 
     def get_point_grey_model(self, point_index):
@@ -100,11 +96,7 @@ class GreyModel:
         for i in range(shapes[0].size()):
             plist = []
             for j in range(len(images)):
-                levels = self._get_normal_grey_levels_for_single_point_single_image(images[j], shapes[j], i)
-                if self._use_gradient:
-                    levels = np.diff(levels)
-                if self._normalize:
-                    levels = np.divide(levels, np.sqrt(np.sum(levels ** 2)))
+                levels = self._get_grey_data(images[j], shapes[j], i, self._number_of_pixels)
                 plist.append(levels)
             pdata = np.array(plist)
             self._models.append(ModedPCAModel(pdata, pca_variance_captured))

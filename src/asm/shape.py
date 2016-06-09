@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import cv2
 
 
 class Shape:
@@ -135,7 +136,7 @@ class Shape:
         """
         return Shape(np.concatenate((self._data, other.raw())))
 
-    def get_neighborhood(self, point_index, num_neighbors):
+    def _get_neighborhood(self, point_index, num_neighbors):
         """
         Returns the neighborhood around a given point.
         :param point_index: The index of the query point in the shape
@@ -147,6 +148,23 @@ class Shape:
             neighborhood_indices = [(point_index + incr) % self.size() for incr in neighborhood_index_increments]
             return np.array([self._data[index] for index in neighborhood_indices])
         return np.array([])
+
+    def get_normal_at_point_generator(self, point_index, normal_neighborhood):
+        """
+        Returns a function that can be used to generate coordinates of the normal at the given point
+        :param point_index: The index of the query point in the shape
+        :param normal_neighborhood: The number of neighborhood points needed on EITHER SIDE
+        :return: A function that accepts a parameter and generates points along the normal based on the input parameter
+        """
+        neighborhood = self._get_neighborhood(point_index, normal_neighborhood)
+        line = cv2.fitLine(np.int32(neighborhood), 2, 0, 0.01, 0.01)
+        slope = np.squeeze(np.array([-line[1], line[0]]) / math.sqrt(np.sum(line[0:2] ** 2)))
+        point = self.get_point(point_index)
+
+        def normal_generator(increment):
+            return point + increment * slope
+
+        return normal_generator
 
     def get_point(self, point_index):
         """
