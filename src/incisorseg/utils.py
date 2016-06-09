@@ -25,5 +25,5 @@ def overlay_shapes_on_image(img, shapes):
 def overlay_points_on_image(img,points):
     im = img.copy()
     for point in points:
-        cv2.circle(im,(point[1],point[0]),1,(0,255,255),1)
+        cv2.circle(im,(point[0],point[1]),1,(0,255,255),1)
     return im
