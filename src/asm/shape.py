@@ -210,6 +210,12 @@ class Shape:
              [math.sin(theta_in_radians), math.cos(theta_in_radians)]])
         return Shape(np.dot(self._data, rotation))
 
+    def to_contour(self):
+        clist = []
+        for point in self._data.tolist():
+            clist.append([point])
+        return np.int32(np.array(clist))
+
 
 class AlignedShapeList:
     """

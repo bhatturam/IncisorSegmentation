@@ -42,7 +42,6 @@ def load_image(filepath):
     """
     return cv2.imread(filepath, 0)
 
-
 def parse_segmentation(img):
     """
     Creates a list of pixels from a 2D Array containing
@@ -50,7 +49,19 @@ def parse_segmentation(img):
     :param img: The img as a 2D Array
     :return: A list of coordinates indices for non zero pixels
     """
-    return np.array(zip(*np.where(img > 0))).tolist()
+    img2 = np.uint8(img.copy())
+    img2[img2>0] = 1
+    return img2
+
+
+# def parse_segmentation(img):
+#     """
+#     Creates a list of pixels from a 2D Array containing
+#     the segmentation
+#     :param img: The img as a 2D Array
+#     :return: A list of coordinates indices for non zero pixels
+#     """
+#     return np.array(zip(*np.where(img > 0))).tolist()
 
 
 class Dataset:
@@ -153,27 +164,53 @@ class Dataset:
         for image_index in image_indices:
             image_segmentations = []
             image_segmentations_mirrored = []
-            final_segmentation = None
-            final_segmentation_mirrored = None
+            combined_segmentation = None
+            combined_segmentation_mirrored = None
+            if combine:
+                combined_segmentation = np.uint8(np.zeros(self._training_segmentations[image_index][0].shape))
+                combined_segmentation_mirrored = np.uint8(np.zeros(self._training_segmentations[image_index][0].shape))
             for tooth_index in tooth_indices:
-                segmentation = self._training_segmentations[image_index][tooth_index]
-                mirrored_segmentation = self._training_segmentations_mirrored[image_index][tooth_index]
-                if not combine:
-                    image_segmentations.append(segmentation)
-                    image_segmentations_mirrored.append(mirrored_segmentation)
-                elif final_segmentation is None:
-                    final_segmentation = segmentation
-                    final_segmentation_mirrored = mirrored_segmentation
+                if combine:
+                    combined_segmentation=np.bitwise_or(combined_segmentation,self._training_segmentations[image_index][tooth_index])
+                    combined_segmentation_mirrored=np.bitwise_or(combined_segmentation_mirrored,self._training_segmentations_mirrored[image_index][tooth_index])
                 else:
-                    final_segmentation = np.concatenate((final_segmentation, segmentation))
-                    final_segmentation_mirrored = np.concatenate((final_segmentation_mirrored, mirrored_segmentation))
+                    image_segmentations.append(self._training_segmentations[image_index][tooth_index])
+                    image_segmentations_mirrored.append(self._training_segmentations_mirrored[image_index][tooth_index])
             if not combine:
                 segmentations.append(image_segmentations)
                 mirrored_segmentations.append(image_segmentations_mirrored)
             else:
-                segmentations.append(final_segmentation)
-                mirrored_segmentations.append(final_segmentation_mirrored)
+                segmentations.append(combined_segmentation)
+                mirrored_segmentations.append(combined_segmentation_mirrored)
         return segmentations, mirrored_segmentations
+
+    # def get_training_image_segmentations(self, image_indices, tooth_indices, combine=False):
+    #     segmentations = []
+    #     mirrored_segmentations = []
+    #     for image_index in image_indices:
+    #         image_segmentations = []
+    #         image_segmentations_mirrored = []
+    #         final_segmentation = None
+    #         final_segmentation_mirrored = None
+    #         for tooth_index in tooth_indices:
+    #             segmentation = self._training_segmentations[image_index][tooth_index]
+    #             mirrored_segmentation = self._training_segmentations_mirrored[image_index][tooth_index]
+    #             if not combine:
+    #                 image_segmentations.append(segmentation)
+    #                 image_segmentations_mirrored.append(mirrored_segmentation)
+    #             elif final_segmentation is None:
+    #                 final_segmentation = segmentation
+    #                 final_segmentation_mirrored = mirrored_segmentation
+    #             else:
+    #                 final_segmentation = np.concatenate((final_segmentation, segmentation))
+    #                 final_segmentation_mirrored = np.concatenate((final_segmentation_mirrored, mirrored_segmentation))
+    #         if not combine:
+    #             segmentations.append(image_segmentations)
+    #             mirrored_segmentations.append(image_segmentations_mirrored)
+    #         else:
+    #             segmentations.append(final_segmentation)
+    #             mirrored_segmentations.append(final_segmentation_mirrored)
+    #     return segmentations, mirrored_segmentations
 
     def get_training_image_landmarks(self, image_indices, tooth_indices, combine=False):
         """
@@ -228,10 +265,10 @@ class LeaveOneOutSplitter:
     def __init__(self, data, images_indices=Dataset.ALL_TRAINING_IMAGES, shapes_indices=Dataset.ALL_TEETH):
         img, mimg = data.get_training_images(images_indices)
         l, ml = data.get_training_image_landmarks(images_indices, shapes_indices, combine=True)
-        s,ms = data.get_training_image_segmentations(images_indices, shapes_indices, combine=True)
+        s, ms = data.get_training_image_segmentations(images_indices, shapes_indices, combine=True)
         images = img + mimg
         shapes = l + ml
-        segmentations = s+ms
+        segmentations = s + ms
         self._images = images
         self._shapes = shapes
         self._segmentations = segmentations
@@ -242,21 +279,35 @@ class LeaveOneOutSplitter:
         return len(self._training_idx)
 
     def get_test_index(self):
-        return  self._test_idx
+        return self._test_idx
 
     def get_training_set(self):
-        return [self._images[idx] for idx in self._training_idx],[self._shapes[idx] for idx in self._training_idx],[self._segmentations[idx] for idx in self._training_idx]
+        return [self._images[idx] for idx in self._training_idx], [self._shapes[idx] for idx in self._training_idx], [
+            self._segmentations[idx] for idx in self._training_idx]
 
     def get_test_example(self):
-        return self._images[self._test_idx],self._shapes[self._test_idx],self._segmentations[self._test_idx]
+        return self._images[self._test_idx], self._shapes[self._test_idx], self._segmentations[self._test_idx]
+
+    def get_dice_error_on_test(self, shape,use_landmark=False):
+        bin_truth=self._segmentations[self._test_idx]
+        if use_landmark:
+            bin_truth=np.int8(np.zeros(self._images[self._test_idx].shape))
+            cv2.drawContours(bin_truth, [self._shapes[self._test_idx].to_contour()], -1, (255, 255, 255), -1)
+            bin_truth[bin_truth>0] = 1
+        bin_predicted = np.int8(np.zeros(bin_truth.shape))
+        cv2.drawContours(bin_predicted, [shape.to_contour()], -1, (255, 255, 255), -1)
+        bin_predicted[bin_predicted>0] = 1
+        intersection = float(np.sum(np.sum(np.bitwise_and(bin_truth, bin_predicted))))
+        union = float(np.sum(np.sum(np.bitwise_or(bin_truth, bin_predicted))))
+        return intersection / union
 
     def __iter__(self):
         return self
 
     def next(self):
-        if self._test_idx > len(self._images)-2:
+        if self._test_idx > len(self._images) - 2:
             raise StopIteration
         else:
             self._test_idx += 1
-            self._training_idx = range(0,self._test_idx)+range(self._test_idx+1,len(self._images))
+            self._training_idx = range(0, self._test_idx) + range(self._test_idx + 1, len(self._images))
             return self
