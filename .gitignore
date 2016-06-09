@@ -88,4 +88,9 @@ ENV/
 # Rope project settings
 .ropeproject
 
+# Dataset
 data
+
+#idea files
+.idea/
+*.iml
