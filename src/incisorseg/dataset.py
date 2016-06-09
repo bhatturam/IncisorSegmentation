@@ -222,3 +222,41 @@ class Dataset:
         self._data_folder = data_folder
         self._read_training_data()
         self._read_extra_images()
+
+
+class LeaveOneOutSplitter:
+    def __init__(self, data, images_indices=Dataset.ALL_TRAINING_IMAGES, shapes_indices=Dataset.ALL_TEETH):
+        img, mimg = data.get_training_images(images_indices)
+        l, ml = data.get_training_image_landmarks(images_indices, shapes_indices, combine=True)
+        s,ms = data.get_training_image_segmentations(images_indices, shapes_indices, combine=True)
+        images = img + mimg
+        shapes = l + ml
+        segmentations = s+ms
+        self._images = images
+        self._shapes = shapes
+        self._segmentations = segmentations
+        self._test_idx = -1
+        self._training_idx = []
+
+    def get_training_set_size(self):
+        return len(self._training_idx)
+
+    def get_test_index(self):
+        return  self._test_idx
+
+    def get_training_set(self):
+        return [self._images[idx] for idx in self._training_idx],[self._shapes[idx] for idx in self._training_idx],[self._segmentations[idx] for idx in self._training_idx]
+
+    def get_test_example(self):
+        return self._images[self._test_idx],self._shapes[self._test_idx],self._segmentations[self._test_idx]
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if self._test_idx > len(self._images)-2:
+            raise StopIteration
+        else:
+            self._test_idx += 1
+            self._training_idx = range(0,self._test_idx)+range(self._test_idx+1,len(self._images))
+            return self
