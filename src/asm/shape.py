@@ -117,8 +117,10 @@ class Shape:
         cov = np.dot(other_data.T, self._data)
         btb = np.dot(other_data.T, other_data)
         pic = np.linalg.pinv(cov)
-        r = np.dot(pic, btb)
-        return Shape(np.dot(self._data, r))
+        a = np.dot(pic, btb)
+        s=math.sqrt(np.mean(np.sum(a**2,axis=0)))
+        r = a/s
+        return Shape(np.dot(self._data, a)),r
 
     def collapse(self):
         """
@@ -248,13 +250,19 @@ class AlignedShapeList:
         self._aligned_shapes = [shape.center() for shape in shapes]
         self._mean_shape = self._aligned_shapes[0].normalize()
         for num_iters in range(max_iters):
+            rotation_list = []
             for i in range(len(self._aligned_shapes)):
-                self._aligned_shapes[i] = self._aligned_shapes[i].align(self._mean_shape)
+                self._aligned_shapes[i],r = self._aligned_shapes[i].align(self._mean_shape)
+                rotation_list.append(r)
+            self._mean_rotation = np.mean(np.array(rotation_list),axis=0)
             previous_mean_shape = self._mean_shape
             self._mean_shape = Shape(
                 np.mean(np.array([shape.raw() for shape in self._aligned_shapes]), axis=0)).center().normalize()
             if np.linalg.norm(self._mean_shape.raw() - previous_mean_shape.raw()) < tol:
                 break
+
+    def mean_rotation(self):
+        return self._mean_rotation
 
     def mean_shape(self):
         """
@@ -272,3 +280,10 @@ class AlignedShapeList:
         :return: a Nxd*d numpy matrix containing the shapes
         """
         return np.array([shape.collapse() for shape in self._aligned_shapes])
+
+
+def get_bounding_box(shape_list):
+    aligned_shapes = np.array([shape.raw() for shape in shape_list])
+    align_min = np.min(np.min(aligned_shapes, axis=0),axis=0)
+    align_max = np.max(np.max(aligned_shapes, axis=0),axis=0)
+    return np.array([align_min,align_max])
