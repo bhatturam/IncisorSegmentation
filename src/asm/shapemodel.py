@@ -31,6 +31,7 @@ class ShapeModel:
         """
         self._aligned_shapes = AlignedShapeList(shapes, gpa_tol, gpa_max_iters)
         self._model = ModedPCAModel(self._aligned_shapes.raw(), pca_variance_captured)
+        self._origin = get_origin_point(shapes)
 
     def aligned_shapes(self):
         """
@@ -78,3 +79,22 @@ class ShapeModel:
             factors[m] = i
             mode_shapes.append(self.generate_shape(factors))
         return mode_shapes
+
+    def get_origin_point(self, shapes):
+        """
+        params:
+            shapes: list of shapes
+        Returns:
+            the mean of the first x, and first y for the first value of the landmark (topleft corner)
+        """
+        X_orig = 0
+        Y_orig = 0
+        for shape in shapes:
+            X_orig+=shape.raw()[0][0]
+            Y_orig+=shape.raw()[0][1]
+
+        X_orig = np.rint(X_orig/len(shapes))
+        Y_orig = np.rint(Y_orig/len(shapes))
+        XY_orig = np.uint32([X_orig, Y_orig])
+
+        return (XY_orig)
