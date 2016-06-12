@@ -107,9 +107,9 @@ class Shape:
         """
         Aligns the current shape (HAS TO BE CENTERED)
         to the other shape (HAS TO BE CENTERED AS WELL) by
-        finding a transformation matrix  r by solving the
+        finding a transformation matrix  a=sr by solving the
         least squares solution of the equation
-        self*r = other
+        self*a= other
         :param other: The other shape
         :return: A shape aligned to other
         """
@@ -118,9 +118,7 @@ class Shape:
         btb = np.dot(other_data.T, other_data)
         pic = np.linalg.pinv(cov)
         a = np.dot(pic, btb)
-        s=math.sqrt(np.mean(np.sum(a**2,axis=0)))
-        r = a/s
-        return Shape(np.dot(self._data, a)),r
+        return Shape(np.dot(self._data, a))
 
     def collapse(self):
         """
@@ -160,11 +158,12 @@ class Shape:
         """
         neighborhood = self._get_neighborhood(point_index, normal_neighborhood)
         line = cv2.fitLine(np.int32(neighborhood), 2, 0, 0.01, 0.01)
-        slope = np.squeeze(np.array([-line[1], line[0]]) / math.sqrt(np.sum(line[0:2] ** 2)))
+        slope = np.array([-line[1], line[0]])
+        unit_slope = np.squeeze(slope / math.sqrt(np.sum(slope ** 2)))
         point = self.get_point(point_index)
 
         def normal_generator(increment):
-            return point + increment * slope
+            return point + increment * unit_slope
 
         return normal_generator
 
@@ -178,12 +177,26 @@ class Shape:
             return self._data[point_index]
         return np.array([])
 
+    def round(self):
+        """
+        Returns a new shape with coordinates rounded to the nearest integer
+        :return:
+        """
+        return Shape(np.int32(np.round(self.raw())))
+
     def pyr_down(self):
         """
         Returns a new shape with the coordinates scaled down by 2
         :return: A shape object
         """
-        return Shape(np.round(self.raw() / 2))
+        return Shape(self.raw() / 2)
+
+    def pyr_up(self):
+        """
+        Returns a new shape with the coordinates scaled up by 2
+        :return: A shape object
+        """
+        return Shape(np.round(self.raw() * 2))
 
     def scale(self, factor):
         """
@@ -219,18 +232,88 @@ class Shape:
         return np.int32(np.array(clist))
 
 
-class AlignedShapeList:
+class ShapeList:
     """
-    A list of Aligned Shapes
+    A wraper class for a list of Shapes
 
     Attributes:
-        _aligned_shapes a list of shapes aligned by generalized procrustes analysis
-        _mean_shape the mean shape of the shapes
+        _shapes a numpy matrix of shapes
 
     Authors: David Torrejon and Bharath Venkatesh
     """
 
-    def __init__(self, shapes, tol=1e-7, max_iters=10000):
+    def __init__(self, shapes):
+        self._shapes = shapes
+
+    def __iter__(self):
+        return self._shapes.__iter__()
+
+    def __len__(self):
+        return len(self._shapes)
+
+    def __getitem__(self, index):
+        return self._shapes[index]
+
+    def raw(self):
+        """
+        Returns the shape list as a number of shapes x number of points x 2 array
+        :return: A numpy matrix
+        """
+        return np.array([shape.raw() for shape in self._shapes])
+
+    def tolist(self):
+        """
+        Returns the shapes as a list of shape objects
+        :return: A list of shape objects
+        """
+        return self._shapes
+
+    def bounding_box(self):
+        raw_data = self.raw()
+        min_coords = np.min(np.min(raw_data, axis=0), axis=0)
+        max_coords = np.max(np.max(raw_data, axis=0), axis=0)
+        return np.array([min_coords, max_coords])
+
+    def mean(self):
+        return Shape(np.mean(self.raw(), axis=0))
+
+    def collapse(self):
+        """
+        Returns the shapes as a numpy matrix.
+        :return: a Nxd*d numpy matrix containing the shapes
+        """
+        return np.array([shape.collapse() for shape in self._shapes])
+
+    def concatenate(self, other):
+        """
+        Returns a new ShapeList concatenating the object and other
+        :param other: The other ShapeList
+        :return: A ShapeList
+        """
+        return ShapeList(self._shapes + other.tolist())
+
+    # def pyr_down(self):
+    #     """
+    #     Returns a new shape list with all the shapes scaled down
+    #     :return: A ShapeList
+    #     """
+    #     return ShapeList([shape.pyr_down() for shape in self._shapes])
+    #
+    # def pyr_up(self):
+    #     """
+    #     Returns a new shape list with all the shapes scaled up
+    #     :return: A ShapeList
+    #     """
+    #     return ShapeList([shape.pyr_up() for shape in self._shapes])
+    #
+    # def round(self):
+    #     """
+    #     Returns a new shape list with all the shapes rounded to the nearest integer
+    #     :return: A ShapeList
+    #     """
+    #     return ShapeList([shape.round() for shape in self._shapes])
+
+    def align(self, tol=1e-7, max_iters=10000):
         """
         Performs Generalized Procrustes Analysis to align a list of shapes
         to a common coordinate system. Implementation based on Appendix A of
@@ -238,52 +321,20 @@ class AlignedShapeList:
         Cootes, Tim, E. R. Baldock, and J. Graham.
         "An introduction to active shape models."
         Image processing and analysis (2000): 223-248.
-
-        :param shapes: A list of Shape objects
         :param tol: The convergence threshold for gpa
         (Default: 1e-7)
         :param max_iters: The maximum number of iterations
         permitted (Default: 10000)
-        :return: centered_shapes The centered list of shapes
-                 mean_shape The mean shape of the given list
+        :return: A new shape list with aligned shapes
         """
-        self._aligned_shapes = [shape.center() for shape in shapes]
-        self._mean_shape = self._aligned_shapes[0].normalize()
+        aligned_shapes = [shape.center() for shape in self._shapes]
+        mean_shape = aligned_shapes[0].normalize()
         for num_iters in range(max_iters):
-            rotation_list = []
-            for i in range(len(self._aligned_shapes)):
-                self._aligned_shapes[i],r = self._aligned_shapes[i].align(self._mean_shape)
-                rotation_list.append(r)
-            self._mean_rotation = np.mean(np.array(rotation_list),axis=0)
-            previous_mean_shape = self._mean_shape
-            self._mean_shape = Shape(
-                np.mean(np.array([shape.raw() for shape in self._aligned_shapes]), axis=0)).center().normalize()
-            if np.linalg.norm(self._mean_shape.raw() - previous_mean_shape.raw()) < tol:
+            for i in range(len(aligned_shapes)):
+                aligned_shapes[i] = aligned_shapes[i].align(mean_shape)
+            previous_mean_shape = mean_shape
+            mean_shape = Shape(
+                np.mean(np.array([shape.raw() for shape in aligned_shapes]), axis=0)).center().normalize()
+            if np.linalg.norm(mean_shape.raw() - previous_mean_shape.raw()) < tol:
                 break
-
-    def mean_rotation(self):
-        return self._mean_rotation
-
-    def mean_shape(self):
-        """
-        Returns the mean shape
-        :return: A shape object containing the mean shape
-        """
-        return self._mean_shape
-
-    def shapes(self):
-        return self._aligned_shapes
-
-    def raw(self):
-        """
-        Returns the shapes as a numpy matrix.
-        :return: a Nxd*d numpy matrix containing the shapes
-        """
-        return np.array([shape.collapse() for shape in self._aligned_shapes])
-
-
-def get_bounding_box(shape_list):
-    aligned_shapes = np.array([shape.raw() for shape in shape_list])
-    align_min = np.min(np.min(aligned_shapes, axis=0),axis=0)
-    align_max = np.max(np.max(aligned_shapes, axis=0),axis=0)
-    return np.array([align_min,align_max])
+        return ShapeList(aligned_shapes)

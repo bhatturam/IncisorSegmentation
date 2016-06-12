@@ -1,7 +1,7 @@
 import numpy as np
 
-from asm.pca import ModedPCAModel
-from asm.shape import AlignedShapeList, Shape
+from pca import ModedPCAModel
+from shape import ShapeList, Shape
 
 
 class ShapeModel:
@@ -19,7 +19,7 @@ class ShapeModel:
 
 """
 
-    def __init__(self, shapes, pca_variance_captured=0.9, gpa_tol=1e-7, gpa_max_iters=10000):
+    def __init__(self, shape_list, pca_variance_captured=0.9, gpa_tol=1e-7, gpa_max_iters=10000):
         """
         Constructs the Active Shape Model based on the given list of Shapes.
         :param shapes: A list of Shapes
@@ -29,30 +29,47 @@ class ShapeModel:
         :param gpa_max_iters: The maximum number of iterations
         permitted for gpa (Default: 10000)
         """
-        self._aligned_shapes = AlignedShapeList(shapes, gpa_tol, gpa_max_iters)
-        self._model = ModedPCAModel(self._aligned_shapes.raw(), pca_variance_captured)
-        self._initial_translation = self._compute_initial_translation(shapes)
+        self._shapes = shape_list
+        self._aligned_shapes = self._shapes.align(gpa_tol, gpa_max_iters)
+        self._model = ModedPCAModel(self._aligned_shapes.collapse(), pca_variance_captured)
 
     def aligned_shapes(self):
         """
         Returns the gpa aligned shapes
-        :return: A list of Shape objects containing the aligned shapes
+        :return: A list of Shape objects
         """
-        return self._aligned_shapes.shapes()
+        return self._aligned_shapes
 
-    def mean_rotation(self):
+    def shapes(self):
         """
-        Returns the mean rotation matrix
-        :return: the mean rotation matrix
+        Returns the shapes used to make the model
+        :return: A list of Shape objects
         """
-        return self._aligned_shapes.mean_rotation()
+        return self._shapes
+
+    def mean_shape_unaligned(self):
+        """
+        Returns the mean shape of the unaligned shapes
+        :return: A Shape object
+        """
+        return self._shapes.mean()
 
     def mean_shape(self):
         """
         Returns the mean shape of the model
         :return: A Shape object containing the mean shape
         """
-        return self._aligned_shapes.mean_shape()
+        return self._aligned_shapes.mean()
+
+    def mean_shape_projected(self):
+        """
+        Returns the mean shape of the aligned shapes scaled and rotated to the
+        mean of the unaligned shapes translated by the centroid of the mean of the unaligned shapes.
+        This should be a good initial position of the model
+        :return: A Shape object
+        """
+        return self.mean_shape().align(self.mean_shape_unaligned().center()).translate(
+            self.mean_shape_unaligned().mean())
 
     def modes(self):
         """
@@ -86,20 +103,3 @@ class ShapeModel:
             factors[m] = i
             mode_shapes.append(self.generate_shape(factors))
         return mode_shapes
-
-    def get_initial_translation(self):
-        return self._initial_translation
-
-    def _compute_initial_translation(self, shapes):
-        """
-        params:
-            shapes: list of shapes
-        Returns:
-            the mean of the first x, and first y for the first value of the landmark (topleft corner)
-        """
-        point_matrix = []
-        for shape in shapes:
-            point_matrix.append(shape.raw())
-        point_matrix=np.array(point_matrix)
-        point_matrix = np.uint32(np.round(np.mean(point_matrix,axis=0)))
-        return Shape(point_matrix)

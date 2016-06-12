@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import math
 
-from asm.pca import ModedPCAModel
+from pca import ModedPCAModel
 
 
 class GreyModel:
@@ -33,7 +33,7 @@ class GreyModel:
     #    return cv2.Mahalanobis(model_patch, test_patch,
     #                           np.linalg.pinv(cv2.calcCovarMatrix(np.concatenate((model_patch, test_patch)), 1)))
 
-    def _get_grey_data(self, image, shape, point_index, number_of_pixels):
+    def _extract_grey_data(self, image, shape, point_index, number_of_pixels):
         """
         Get the grey level data for the given image and shape for the specified landmark
         :param image: The actual grayscale image
@@ -56,7 +56,7 @@ class GreyModel:
             data = np.divide(data, np.sqrt(np.sum(data ** 2)))
         return data
 
-    def get_point_grey_model(self, point_index):
+    def grey_model_point(self, point_index):
         return self._models[point_index]
 
     def generate_grey(self, point_index, factors):
@@ -86,17 +86,17 @@ class GreyModel:
             mode_greys.append(self.generate_grey(point_index, factors))
         return mode_greys
 
-    def __init__(self, images, shapes, number_of_pixels=5, pca_variance_captured=0.9, normal_point_neighborhood=4,
+    def __init__(self, images, shape_list, number_of_pixels=5, pca_variance_captured=0.9, normal_point_neighborhood=4,
                  use_gradient=False, normalize=False):
         self._normal_neighborhood = normal_point_neighborhood
         self._number_of_pixels = number_of_pixels
         self._normalize = normalize
         self._use_gradient = use_gradient
         self._models = []
-        for i in range(shapes[0].size()):
+        for i in range(shape_list.tolist()[0].size()):
             plist = []
             for j in range(len(images)):
-                levels = self._get_grey_data(images[j], shapes[j], i, self._number_of_pixels)
+                levels = self._extract_grey_data(images[j], shape_list[j], i, self._number_of_pixels)
                 plist.append(levels)
             pdata = np.array(plist)
             self._models.append(ModedPCAModel(pdata, pca_variance_captured))
