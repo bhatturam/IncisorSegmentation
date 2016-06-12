@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import math
+from shape import Shape
 
 from pca import ModedPCAModel
 
@@ -45,7 +46,8 @@ class GreyModel:
         ctr = 0
         h, w = image.shape
         generator = shape.get_normal_at_point_generator(point_index, self._normal_neighborhood)
-        for increment in range(-number_of_pixels, number_of_pixels + 1):
+        increments = range(-number_of_pixels, number_of_pixels + 1)
+        for increment in increments:
             coordinates = np.int32(np.round(generator(increment)))
             if 0 <= coordinates[1] < h and 0 <= coordinates[0] < w:
                 data[ctr] = image[coordinates[1]][coordinates[0]]  # opencv y x problems
@@ -54,9 +56,13 @@ class GreyModel:
             data = np.diff(data)
         if self._normalize:
             data = np.divide(data, np.sqrt(np.sum(data ** 2)))
-        return data
+        return np.squeeze(data), generator, increments
 
     def grey_model_point(self, point_index):
+        """
+        :param point_index: The index of the landmark
+        :return: The modedPCAModel for the landmark
+        """
         return self._models[point_index]
 
     def generate_grey(self, point_index, factors):
@@ -86,17 +92,45 @@ class GreyModel:
             mode_greys.append(self.generate_grey(point_index, factors))
         return mode_greys
 
-    def __init__(self, images, shape_list, number_of_pixels=5, pca_variance_captured=0.9, normal_point_neighborhood=4,
+    def search(self, test_image, initial_shape, search_number_of_pixels=120):
+        """
+        Searches for the best positions of the shape points in the test image
+        :param test_image: The test image
+        :param initial_shape: The initial shape
+        :param search_number_of_pixels: The number of pixels to search along normal
+        :return: The new shape, the errors and the model factors
+        """
+        factor_list = []
+        error_list = []
+        point_list = []
+        for point_index in range(len(self.size())):
+            test_patch, generator, increments = self._extract_grey_data(test_image, initial_shape, point_index,
+                                                                        search_number_of_pixels)
+            factor_list_point = []
+            error_list_point = []
+            for i in range(len(test_patch)):
+                error, factors = self.grey_model_point(point_index).fit(test_patch[i:self._number_of_pixels])
+                error_list_point.append(error)
+                factor_list_point.append(factors)
+            factor_list_point = np.array(factor_list_point)
+            error_list_point = np.array(error_list_point)
+            factor_list.append(factor_list_point)
+            error_list.append(error_list_point)
+            point_list.append(generator(increments[np.argmin(error_list_point)]))
+        return Shape(np.array(point_list)), np.array(error_list), np.array(factor_list)
+
+    def __init__(self, images, shape_list, number_of_pixels_model=60, pca_variance_captured=0.9,
+                 normal_point_neighborhood=4,
                  use_gradient=False, normalize=False):
         self._normal_neighborhood = normal_point_neighborhood
-        self._number_of_pixels = number_of_pixels
+        self._number_of_pixels = number_of_pixels_model
         self._normalize = normalize
         self._use_gradient = use_gradient
         self._models = []
         for i in range(shape_list.tolist()[0].size()):
             plist = []
             for j in range(len(images)):
-                levels = self._extract_grey_data(images[j], shape_list[j], i, self._number_of_pixels)
+                levels, _, _ = self._extract_grey_data(images[j], shape_list[j], i, self._number_of_pixels)
                 plist.append(levels)
             pdata = np.array(plist)
             self._models.append(ModedPCAModel(pdata, pca_variance_captured))

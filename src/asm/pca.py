@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from bisect import bisect_left
 
@@ -178,6 +179,9 @@ class ModedPCAModel:
         """
         return self._modes
 
+    def _p(self):
+        return self._model.eigenvectors()[:, 0:self._modes]
+
     def generate_deviation(self, factors):
         """
         Generates the deviation to be added to the mean based
@@ -188,6 +192,29 @@ class ModedPCAModel:
         between -1 and 1
         :return: A vector containing the generated point
         """
-        p = self._model.eigenvectors()[:, 0:self._modes]
+        p = self._p()
         pb = np.dot(p, factors * self._b_max)
         return pb
+
+    def fit(self, data):
+        """
+        Fits the model to a new data point and returns the best factors
+        :param data: A data point - array of the size of the mean
+        :return: fit error,factors array of the size of the mean
+        """
+        if data.shape == self.mean().shape:
+            bcand = np.squeeze(np.dot(self._p().T, (self.data - self.mean()))).tolist()
+            factors = np.zeros(len(bcand))
+            for i in range(len(bcand)):
+                val = bcand[i] / self._b_max[i]
+                if val > 1:
+                    val = 1
+                elif val < -1:
+                    val = -1
+                factors[i] = val
+            pred = self.mean() + self.generate_deviation(factors)
+            error = math.sqrt(np.sum((data - pred) ** 2))
+            return error, factors
+        else:
+            raise TypeError("Data has to be of the same size as model - Expected " + str(self.mean().shape) + " Got " +
+                            str(data.shape))
