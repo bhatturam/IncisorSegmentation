@@ -61,6 +61,18 @@ class ShapeModel:
         """
         return self._aligned_shapes.mean()
 
+    def fit(self, initial_shape):
+        """
+        Fits the model to the iniital shape
+        :param initial_shape: The shape to fit the model
+        :return: The fitted Shape and the mean squared error
+        """
+        _, factors = self._model.fit(initial_shape.center().align(self.mean_shape()).collapse())
+        fitted_shape = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
+        fitted_shape = fitted_shape.align(initial_shape.center()).translate(initial_shape.mean())
+        fit_error = np.mean(np.sqrt(np.sum((fitted_shape.raw() - initial_shape.raw()) ** 2)))
+        return fitted_shape,fit_error
+
     def mean_shape_projected(self):
         """
         Returns the mean shape of the aligned shapes scaled and rotated to the

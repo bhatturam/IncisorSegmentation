@@ -203,7 +203,7 @@ class ModedPCAModel:
         :return: fit error,factors array of the size of the mean
         """
         if data.shape == self.mean().shape:
-            bcand = np.squeeze(np.dot(self._p().T, (self.data - self.mean()))).tolist()
+            bcand = np.squeeze(np.dot(self._p().T, (data - self.mean()))).tolist()
             factors = np.zeros(len(bcand))
             for i in range(len(bcand)):
                 val = bcand[i] / self._b_max[i]

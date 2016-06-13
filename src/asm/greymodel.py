@@ -42,7 +42,7 @@ class GreyModel:
         :param point_index: The query point index in shape
         :return: A vector of grey level data number_of_pixels wide
         """
-        data = np.zeros((2 * number_of_pixels + 1,), dtype=float)
+        data = np.zeros(2 * number_of_pixels + 1, dtype=float)
         ctr = 0
         h, w = image.shape
         generator = shape.get_normal_at_point_generator(point_index, self._normal_neighborhood)
@@ -92,32 +92,31 @@ class GreyModel:
             mode_greys.append(self.generate_grey(point_index, factors))
         return mode_greys
 
-    def search(self, test_image, initial_shape, search_number_of_pixels=120):
+    def search(self, test_image, initial_shape, search_number_of_pixels=60):
         """
         Searches for the best positions of the shape points in the test image
         :param test_image: The test image
         :param initial_shape: The initial shape
         :param search_number_of_pixels: The number of pixels to search along normal
-        :return: The new shape, the errors and the model factors
+        :return: The new shape, and the array of errors
         """
-        factor_list = []
-        error_list = []
         point_list = []
-        for point_index in range(len(self.size())):
+        error_list = []
+        for point_index in range(self.size()):
             test_patch, generator, increments = self._extract_grey_data(test_image, initial_shape, point_index,
                                                                         search_number_of_pixels)
-            factor_list_point = []
-            error_list_point = []
-            for i in range(len(test_patch)):
-                error, factors = self.grey_model_point(point_index).fit(test_patch[i:self._number_of_pixels])
-                error_list_point.append(error)
-                factor_list_point.append(factors)
-            factor_list_point = np.array(factor_list_point)
-            error_list_point = np.array(error_list_point)
-            factor_list.append(factor_list_point)
-            error_list.append(error_list_point)
-            point_list.append(generator(increments[np.argmin(error_list_point)]))
-        return Shape(np.array(point_list)), np.array(error_list), np.array(factor_list)
+            min_index = search_number_of_pixels - self._number_of_pixels
+            select_range = range(min_index, min_index + (2 * self._number_of_pixels + (1 - self._use_gradient)))
+            min_error, _ = self.grey_model_point(point_index).fit(test_patch[select_range])
+            for i in range(len(test_patch) - (2 * self._number_of_pixels + (1 - self._use_gradient))):
+                select_range = range(i, i + (2 * self._number_of_pixels + (1 - self._use_gradient)))
+                error, _ = self.grey_model_point(point_index).fit(test_patch[select_range])
+                if error < min_error:
+                    min_index = i
+                    min_error = error
+            point_list.append(generator(increments[np.argmin(min_index)]))
+            error_list.append(min_error)
+        return Shape(np.array(point_list)), np.array(error_list)
 
     def __init__(self, images, shape_list, number_of_pixels_model=60, pca_variance_captured=0.9,
                  normal_point_neighborhood=4,
