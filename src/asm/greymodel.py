@@ -55,7 +55,9 @@ class GreyModel:
         if self._use_gradient:
             data = np.diff(data)
         if self._normalize:
-            data = np.divide(data, np.sqrt(np.sum(data ** 2)))
+            normval = np.sqrt(np.sum(data ** 2))
+            if normval > 0:
+                data = np.divide(data, normval)
         return np.squeeze(data), generator, increments
 
     def grey_model_point(self, point_index):

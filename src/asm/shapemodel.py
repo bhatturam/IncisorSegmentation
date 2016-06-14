@@ -61,7 +61,7 @@ class ShapeModel:
         """
         return self._aligned_shapes.mean()
 
-    def fit_iterative(self, shape, tol=1e-7, max_iters=10000):
+    def fit(self, shape, tol=1e-7, max_iters=10000):
         """
         Refer Protocol 1 - Page 9 of
          An Active Shape Model based on
@@ -72,20 +72,29 @@ class ShapeModel:
         :return The fitted Shape and the mean squared error
         """
 
-        factors = np.zeros(self._model.mean().shape)
+        factors = np.zeros(self._model.modes())
+        centered_shape = shape.center()
+        current_fit = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
+        tmat = current_fit.transformation_matrix(centered_shape)
         for num_iters in range(max_iters):
-            current_fit = Shape.from_collapsed_shape(self._model.generate_deviation(factors))
-            collapsed_shape = shape.center().align(current_fit).collapse()
-            tangent_projection = collapsed_shape / (np.dot(collapsed_shape, self._model.mean()))
-            old_factors = factors
+            current_fit = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
+            tmat = current_fit.transformation_matrix(centered_shape)
+            inv_tmat = np.linalg.pinv(tmat)
+            collapsed_shape = (Shape(np.dot(centered_shape.raw(),inv_tmat))).collapse()
+            tangent_factor = np.dot(collapsed_shape, self._model.mean());
+            tangent_projection = collapsed_shape / (tangent_factor)
+            old_factors = factors.copy()
             error, factors = self._model.fit(tangent_projection)
+            #error, factors = self._model.fit(collapsed_shape)
             if np.linalg.norm(old_factors - factors) < tol:
-                break
-        return Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors)).translate(
-            shape.mean())
+                break #stuff by bharath
+        final_shape = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
+        return Shape(np.dot(final_shape.raw(),tmat)).translate(shape.mean()),error
 
-    def fit(self, shape):
+    def fit_useless(self, shape):
+
         """
+        USELESS FOR NOW
         One shot fits the model to the iniital shape
         :param shape: The shape to fit the model to
         :return: The fitted Shape and the mean squared error

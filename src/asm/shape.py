@@ -103,6 +103,25 @@ class Shape:
         """
         return Shape(self._data / self.norm())
 
+
+    def transformation_matrix(self, other):
+        """
+        Returns the transformation matrix that
+        is used to align the current shape (HAS TO BE CENTERED)
+        to the other shape (HAS TO BE CENTERED AS WELL) by
+        finding a transformation matrix  a=sr by solving the
+        least squares solution of the equation
+        self*a= other
+        :param other: The other shape
+        :return: A matrix
+        """
+        other_data = other.raw()
+        cov = np.dot(other_data.T, self._data)
+        btb = np.dot(other_data.T, other_data)
+        pic = np.linalg.pinv(cov)
+        a = np.dot(pic, btb)
+        return a
+
     def align(self, other):
         """
         Aligns the current shape (HAS TO BE CENTERED)
@@ -113,11 +132,7 @@ class Shape:
         :param other: The other shape
         :return: A shape aligned to other
         """
-        other_data = other.raw()
-        cov = np.dot(other_data.T, self._data)
-        btb = np.dot(other_data.T, other_data)
-        pic = np.linalg.pinv(cov)
-        a = np.dot(pic, btb)
+        a = self.transformation_matrix(other)
         return Shape(np.dot(self._data, a))
 
     def collapse(self):
