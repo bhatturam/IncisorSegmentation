@@ -61,17 +61,40 @@ class ShapeModel:
         """
         return self._aligned_shapes.mean()
 
-    def fit(self, initial_shape):
+    def fit_iterative(self, shape, tol=1e-7, max_iters=10000):
         """
-        Fits the model to the iniital shape
-        :param initial_shape: The shape to fit the model
+        Refer Protocol 1 - Page 9 of
+         An Active Shape Model based on
+        Cootes, Tim, E. R. Baldock, and J. Graham.
+        "An introduction to active shape models."
+        Image processing and analysis (2000): 223-248.
+        :param shape: The shape to fit the model to
+        :return The fitted Shape and the mean squared error
+        """
+
+        factors = np.zeros(self._model.mean().shape)
+        for num_iters in range(max_iters):
+            current_fit = Shape.from_collapsed_shape(self._model.generate_deviation(factors))
+            collapsed_shape = shape.center().align(current_fit).collapse()
+            tangent_projection = collapsed_shape / (np.dot(collapsed_shape, self._model.mean()))
+            old_factors = factors
+            error, factors = self._model.fit(tangent_projection)
+            if np.linalg.norm(old_factors - factors) < tol:
+                break
+        return Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors)).translate(
+            shape.mean())
+
+    def fit(self, shape):
+        """
+        One shot fits the model to the iniital shape
+        :param shape: The shape to fit the model to
         :return: The fitted Shape and the mean squared error
         """
-        _, factors = self._model.fit(initial_shape.center().align(self.mean_shape()).collapse())
+        _, factors = self._model.fit(shape.center().align(self.mean_shape()).collapse())
         fitted_shape = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
-        fitted_shape = fitted_shape.align(initial_shape.center()).translate(initial_shape.mean())
-        fit_error = np.mean(np.sqrt(np.sum((fitted_shape.raw() - initial_shape.raw()) ** 2)))
-        return fitted_shape,fit_error
+        fitted_shape = fitted_shape.align(shape.center()).translate(shape.mean())
+        fit_error = np.mean(np.sqrt(np.sum((fitted_shape.raw() - shape.raw()) ** 2)))
+        return fitted_shape, fit_error
 
     def mean_shape_projected(self):
         """
