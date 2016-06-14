@@ -190,7 +190,7 @@ class ModedPCAModel:
         values between -1 and 1
         :param factors: A vector of size modes() with values
         between -1 and 1
-        :return: A vector containing the generated point
+        :return: A vector containing the generated deviation from mean
         """
         p = self._p()
         pb = np.dot(p, factors * self._b_max)
