@@ -1,3 +1,4 @@
+import warnings
 import cv2
 import numpy as np
 import math
@@ -34,31 +35,28 @@ class GreyModel:
     #    return cv2.Mahalanobis(model_patch, test_patch,
     #                           np.linalg.pinv(cv2.calcCovarMatrix(np.concatenate((model_patch, test_patch)), 1)))
 
-    def _extract_grey_data(self, image, shape, point_index, number_of_pixels):
-        """
-        Get the grey level data for the given image and shape for the specified landmark
-        :param image: The actual grayscale image
-        :param shape: The current shape
-        :param point_index: The query point index in shape
-        :return: A vector of grey level data number_of_pixels wide
-        """
-        data = np.zeros(2 * number_of_pixels + 1, dtype=float)
-        ctr = 0
+    def _get_grey_data(self, image, coordinate_list):
+        data = np.array([image[coordinate[1], coordinate[0]] for coordinate in coordinate_list])
+        if self._use_gradient:
+            data = np.diff(data)
+        if self._normalize:
+            normval = np.sum(np.abs(data))
+            if normval > 0:
+                data = np.divide(data, normval)
+        return data
+
+    def _get_point_coordinates_along_normal(self, image, shape, point_index, number_of_pixels, break_on_error=True):
         h, w = image.shape
+        coordinate_list = []
         generator = shape.get_normal_at_point_generator(point_index, self._normal_neighborhood)
         increments = range(-number_of_pixels, number_of_pixels + 1)
         for increment in increments:
             coordinates = np.int32(np.round(generator(increment)))
             if 0 <= coordinates[1] < h and 0 <= coordinates[0] < w:
-                data[ctr] = image[coordinates[1]][coordinates[0]]  # opencv y x problems
-            ctr += 1
-        if self._use_gradient:
-            data = np.diff(data)
-        if self._normalize:
-            normval = np.sqrt(np.sum(data ** 2))
-            if normval > 0:
-                data = np.divide(data, normval)
-        return np.squeeze(data), generator, increments
+                coordinate_list.append(coordinates)
+            elif break_on_error:
+                raise ValueError("Index exceeds image dimensions")
+        return coordinate_list, generator, increments
 
     def grey_model_point(self, point_index):
         """
@@ -100,23 +98,30 @@ class GreyModel:
         :param test_image: The test image
         :param initial_shape: The initial shape
         :param search_number_of_pixels: The number of pixels to search along normal
-        :return: The new shape, and the array of errors
+        :return: The new shape, and the array of errors - empty if the shape hasnt moved
         """
         point_list = []
         error_list = []
+        h, w = test_image.shape
         for point_index in range(self.size()):
-            test_patch, generator, increments = self._extract_grey_data(test_image, initial_shape, point_index,
-                                                                        search_number_of_pixels)
-            min_index = search_number_of_pixels - self._number_of_pixels
-            select_range = range(min_index, min_index + (2 * self._number_of_pixels + (1 - self._use_gradient)))
-            min_error, _ = self.grey_model_point(point_index).fit(test_patch[select_range])
-            for i in range(len(test_patch) - (2 * self._number_of_pixels + (1 - self._use_gradient))):
-                select_range = range(i, i + (2 * self._number_of_pixels + (1 - self._use_gradient)))
-                error, _ = self.grey_model_point(point_index).fit(test_patch[select_range])
+            coordinate_list, _, _ = self._get_point_coordinates_along_normal(test_image, initial_shape, point_index,
+                                                                             search_number_of_pixels,
+                                                                             break_on_error=False)
+            test_patch = self._get_grey_data(test_image, coordinate_list)
+            grey_model = self.grey_model_point(point_index)
+            if len(test_patch) < len(grey_model.mean()):
+                return initial_shape, np.array([])
+
+            min_index = 0
+            select_range = range(min_index, min_index + len(grey_model.mean()))
+            min_error, _ = grey_model.fit(test_patch[select_range])
+            for i in range(1 + len(test_patch) - len(grey_model.mean())):
+                select_range = range(i, i + len(grey_model.mean()))
+                error, _ = grey_model.fit(test_patch[select_range])
                 if error < min_error:
                     min_index = i
                     min_error = error
-            point_list.append(generator(increments[np.argmin(min_index)]))
+            point_list.append(coordinate_list[min_index + self._number_of_pixels])
             error_list.append(min_error)
         return Shape(np.array(point_list)), np.array(error_list)
 
@@ -131,7 +136,9 @@ class GreyModel:
         for i in range(shape_list.tolist()[0].size()):
             plist = []
             for j in range(len(images)):
-                levels, _, _ = self._extract_grey_data(images[j], shape_list[j], i, self._number_of_pixels)
+                coordinate_list, _, _ = self._get_point_coordinates_along_normal(images[j], shape_list[j], i,
+                                                                                 self._number_of_pixels)
+                levels = self._get_grey_data(images[j], coordinate_list)
                 plist.append(levels)
             pdata = np.array(plist)
             self._models.append(ModedPCAModel(pdata, pca_variance_captured))

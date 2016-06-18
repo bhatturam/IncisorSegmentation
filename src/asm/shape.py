@@ -21,6 +21,10 @@ class Shape:
         self._data = data
 
     @classmethod
+    def from_homogeneous_coordinates(cls, homogeneous_raw):
+        return Shape(np.squeeze(homogeneous_raw[:, 0:2]))
+
+    @classmethod
     def from_collapsed_shape(cls, shape_vector):
         return cls(np.reshape(shape_vector, (len(shape_vector.tolist()) / 2, 2)))
 
@@ -94,6 +98,9 @@ class Shape:
         """
         return Shape(self._data - self.mean())
 
+    def raw_homogeneous(self):
+        return np.concatenate((self.raw(), np.ones((self.size(), 1), dtype=float)), axis=1)
+
     def normalize(self):
         """
         Returns a new shape containing this shape
@@ -103,37 +110,49 @@ class Shape:
         """
         return Shape(self._data / self.norm())
 
-
     def transformation_matrix(self, other):
         """
-        Returns the transformation matrix that
-        is used to align the current shape (HAS TO BE CENTERED)
-        to the other shape (HAS TO BE CENTERED AS WELL) by
-        finding a transformation matrix  a=sr by solving the
+        Returns the translation,scaling and rotation that
+        is used to align the current shape
+        to the other shape by
+        solving the
         least squares solution of the equation
+        Refer the https://en.wikipedia.org/wiki/Kabsch_algorithm
+        for more details
         self*a= other
         :param other: The other shape
-        :return: A matrix
+        :return: translation array, scale array, rotation matrix
         """
-        other_data = other.raw()
-        cov = np.dot(other_data.T, self._data)
-        btb = np.dot(other_data.T, other_data)
-        pic = np.linalg.pinv(cov)
-        a = np.dot(pic, btb)
-        return a
+        translation = other.mean() - self.mean()
+        scale = other.center().norm() / self.center().norm()
+        other_data = other.center().normalize().raw()
+        this_data = self.center().normalize().raw()
+        cov = np.dot(other_data.T, this_data)
+        U, _, VT = np.linalg.svd(cov, full_matrices=True, compute_uv=True)
+        rotation = np.dot(VT.T, U.T)
+        # d = np.sign(np.linalg.det(rotation))
+        # correction = np.array([[1, 0], [0, d]], dtype=float)
+        # rotation = np.dot(VT.T, np.dot(correction, U.T))
+        return translation, scale, rotation
+
+    def homogeneous_transformation_matrix(self, other):
+        translation, scaling, rotation = self.transformation_matrix(other)
+        return np.array([[scaling[0] * rotation[0, 0], rotation[0, 1], translation[0]],
+                         [rotation[1, 0], scaling[1] * rotation[1, 1], translation[1]],
+                         [0, 0, 1]])
 
     def align(self, other):
         """
-        Aligns the current shape (HAS TO BE CENTERED)
-        to the other shape (HAS TO BE CENTERED AS WELL) by
-        finding a transformation matrix  a=sr by solving the
+        Aligns the current shape
+        to the other shape  by
+        finding a transformation by solving the
         least squares solution of the equation
         self*a= other
         :param other: The other shape
         :return: A shape aligned to other
         """
-        a = self.transformation_matrix(other)
-        return Shape(np.dot(self._data, a))
+        translation, scaling, rotation = self.transformation_matrix(other)
+        return Shape(np.dot(self._data, rotation)).scale(scaling).translate(translation)
 
     def collapse(self):
         """
@@ -229,7 +248,7 @@ class Shape:
         """
         return Shape(self._data + displacement)
 
-    def rotate(self, theta_in_radians):
+    def rotate_radians(self, theta_in_radians):
         """
         Returns the current shape rotated by theta radians
         :param theta_in_radians: The rotation angle in radians
@@ -239,6 +258,24 @@ class Shape:
             [[math.cos(theta_in_radians), -math.sin(theta_in_radians)],
              [math.sin(theta_in_radians), math.cos(theta_in_radians)]])
         return Shape(np.dot(self._data, rotation))
+
+    def rotate(self, rotation):
+        """
+        Returns the current shape rotated by the rotation matrix
+        :param rotation: The rotation matrix
+        :return: A shape object containing the rotated shape
+        """
+        return Shape(np.dot(self._data, rotation))
+
+    def transform(self, transformation_matrix):
+        translation = np.array([transformation_matrix[0, 2], transformation_matrix[1, 2]])
+        sintheta = transformation_matrix[0, 1]
+        costheta = np.sqrt(1 - (sintheta ** 2))
+        scaling = np.array([transformation_matrix[0, 0], transformation_matrix[1, 1]]) / costheta
+        rotation = np.array(
+            [[costheta, -sintheta],
+             [sintheta, costheta]])
+        return self.rotate(rotation).scale(scaling).translate(translation)
 
     def to_contour(self):
         clist = []
@@ -328,6 +365,7 @@ class ShapeList:
     #     """
     #     return ShapeList([shape.round() for shape in self._shapes])
 
+
     def align(self, tol=1e-7, max_iters=10000):
         """
         Performs Generalized Procrustes Analysis to align a list of shapes
@@ -342,7 +380,7 @@ class ShapeList:
         permitted (Default: 10000)
         :return: A new shape list with aligned shapes
         """
-        aligned_shapes = [shape.center() for shape in self._shapes]
+        aligned_shapes = [shape.center().normalize() for shape in self._shapes]
         mean_shape = aligned_shapes[0].normalize()
         for num_iters in range(max_iters):
             for i in range(len(aligned_shapes)):
