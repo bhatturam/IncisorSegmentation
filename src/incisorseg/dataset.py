@@ -305,7 +305,8 @@ class LeaveOneOutSplitter:
     def get_test_example(self):
         return self._images[self._test_idx], self._shapes[self._test_idx], self._segmentations[self._test_idx]
 
-    def get_dice_error_on_test(self, shape, use_landmark=False):
+    def get_dice_error_on_test(self, detected_shape, use_landmark=False):
+        shape = detected_shape.round()
         bin_truth = self._segmentations[self._test_idx]
         if use_landmark:
             bin_truth = np.uint8(np.zeros(self._images[self._test_idx].shape))

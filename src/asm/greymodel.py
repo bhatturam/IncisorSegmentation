@@ -27,13 +27,15 @@ class GreyModel:
         Returns the number of grey point models - i.e the number of landmarks
         :return: Number of point models
         """
-        return len(self._models)
+        if self.simple_model:
+            return len(self.list_means_points)
+        else:
+            return len(self._models)
 
-    # def fit_quality(self, point_index, model_factors, test_image, test_shape):
-    #    model_patch = self.generate_grey(point_index, model_factors)
-    #    test_patch = self._get_normal_grey_levels_for_single_point_single_image(test_image, test_shape, point_index)
-    #    return cv2.Mahalanobis(model_patch, test_patch,
-    #                           np.linalg.pinv(cv2.calcCovarMatrix(np.concatenate((model_patch, test_patch)), 1)))
+    def fit_quality(self, point_index, test_patch):
+        g_diff = test_patch-self.list_means_points[point_index]
+        return np.dot(np.dot(g_diff.T, self.list_cov_mat_points[point_index]), g_diff)
+
 
     def _get_grey_data(self, image, coordinate_list):
         data = np.array([image[coordinate[1], coordinate[0]] for coordinate in coordinate_list])
@@ -107,17 +109,33 @@ class GreyModel:
             coordinate_list, _, _ = self._get_point_coordinates_along_normal(test_image, initial_shape, point_index,
                                                                              search_number_of_pixels,
                                                                              break_on_error=False)
+            #rint coordinate_list
             test_patch = self._get_grey_data(test_image, coordinate_list)
-            grey_model = self.grey_model_point(point_index)
-            if len(test_patch) < len(grey_model.mean()):
+            grey_model = None
+            patch_size = 0
+            if self.simple_model:
+                patch_size = len(self.list_means_points[point_index])
+            else:
+                patch_size = len(grey_model.mean())
+                grey_model = self.grey_model_point(point_index)
+            if len(test_patch) < patch_size:
                 return initial_shape, np.array([])
 
             min_index = 0
-            select_range = range(min_index, min_index + len(grey_model.mean()))
-            min_error, _ = grey_model.fit(test_patch[select_range])
-            for i in range(1 + len(test_patch) - len(grey_model.mean())):
-                select_range = range(i, i + len(grey_model.mean()))
-                error, _ = grey_model.fit(test_patch[select_range])
+            select_range = range(min_index, min_index + patch_size)
+            if self.simple_model is False:
+                min_error, _ = grey_model.fit(test_patch[select_range])
+            else:
+                min_error = self.fit_quality(test_patch=test_patch[select_range], point_index=point_index)
+            for i in range(1 + len(test_patch) - patch_size):
+                select_range = range(i, i + patch_size)
+                #error, _ = grey_model.fit(test_patch[select_range])
+
+                if self.simple_model is False:
+                    error, _ = grey_model.fit(test_patch[select_range])
+                else:
+                    error = self.fit_quality(test_patch=test_patch[select_range], point_index=point_index)
+
                 if error < min_error:
                     min_index = i
                     min_error = error
@@ -127,12 +145,15 @@ class GreyModel:
 
     def __init__(self, images, shape_list, number_of_pixels_model=60, pca_variance_captured=0.9,
                  normal_point_neighborhood=4,
-                 use_gradient=False, normalize=False):
+                 use_gradient=False, normalize=False, simple_model = True):
+        self.simple_model = simple_model
         self._normal_neighborhood = normal_point_neighborhood
         self._number_of_pixels = number_of_pixels_model
         self._normalize = normalize
         self._use_gradient = use_gradient
         self._models = []
+        self.list_cov_mat_points = []
+        self.list_means_points = []
         for i in range(shape_list.tolist()[0].size()):
             plist = []
             for j in range(len(images)):
@@ -141,4 +162,9 @@ class GreyModel:
                 levels = self._get_grey_data(images[j], coordinate_list)
                 plist.append(levels)
             pdata = np.array(plist)
-            self._models.append(ModedPCAModel(pdata, pca_variance_captured))
+            if self.simple_model:
+                self.list_cov_mat_points.append(np.linalg.pinv(np.cov(pdata.T)))
+                self.list_means_points.append(np.mean(pdata, axis=0))
+
+            else:
+                self._models.append(ModedPCAModel(pdata, pca_variance_captured))
