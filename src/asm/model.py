@@ -39,7 +39,6 @@ class ActiveShapeModel:
 
             current_shape, fit_error = self._shape_model.fit(new_shape_grey, self._shape_fit_tol,
                                                              self._shape_fit_max_iters)
-            print current_shape.mean()
             if np.linalg.norm(current_shape.raw() - previous_shape.raw()) < combined_fit_tol:
                 break
         return current_shape, fit_error, num_iter

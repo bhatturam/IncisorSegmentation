@@ -78,9 +78,13 @@ class ShapeModel:
         for num_iters in range(max_iters):
             old_factors = factors.copy()
             current_fit = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
+            #print current_fit.norm()
             htmatrix = current_fit.homogeneous_transformation_matrix(shape)
             inv_tmat = np.linalg.pinv(htmatrix)
-            collapsed_shape = (Shape.from_homogeneous_coordinates(np.dot(shape.raw_homogeneous(), inv_tmat))).collapse()
+            # collapsed_shape = (Shape.from_homogeneous_coordinates(np.dot(shape.raw_homogeneous(), inv_tmat))).collapse()
+            collapsed_shape = shape.transform(inv_tmat).collapse()
+            collapsed_shape = shape.align(current_fit).collapse()
+            #print Shape.from_collapsed_shape(collapsed_shape).norm()
             tangent_factor = np.dot(collapsed_shape, self._model.mean());
             tangent_projection = collapsed_shape / (tangent_factor)
             error, factors = self._model.fit(tangent_projection)
@@ -88,6 +92,7 @@ class ShapeModel:
             if np.linalg.norm(old_factors - factors) < tol:
                 break  # stuff by bharath
         return current_fit.transform(htmatrix), error
+        #return current_fit.align(shape), error
 
     def fit_useless(self, shape):
 
