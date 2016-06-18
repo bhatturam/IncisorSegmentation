@@ -48,7 +48,7 @@ class GreyModel:
     def _get_point_coordinates_along_normal(self, image, shape, point_index, number_of_pixels, break_on_error=True):
         h, w = image.shape
         coordinate_list = []
-        generator = shape.get_normal_at_point_generator(point_index, self._normal_neighborhood)
+        generator = shape.normal_at_point_generator(point_index, self._normal_neighborhood)
         increments = range(-number_of_pixels, number_of_pixels + 1)
         for increment in increments:
             coordinates = np.int32(np.round(generator(increment)))

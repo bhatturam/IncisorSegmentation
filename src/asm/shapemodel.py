@@ -71,6 +71,27 @@ class ShapeModel:
         :param shape: The shape to fit the model to
         :return The fitted Shape and the mean squared error
         """
+        factors = np.zeros(self._model.modes())
+        current_fit = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
+        for num_iters in range(max_iters):
+            old_factors = factors.copy()
+            current_fit = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
+            collapsed_shape = shape.align(current_fit).collapse()
+            error, factors = self._model.fit(collapsed_shape)
+            if np.linalg.norm(old_factors - factors) < tol:
+                break
+        return current_fit.align(shape), error, num_iters
+
+    def fit_useless2(self, shape, tol=1e-7, max_iters=10000):
+        """
+        Refer Protocol 1 - Page 9 of
+         An Active Shape Model based on
+        Cootes, Tim, E. R. Baldock, and J. Graham.
+        "An introduction to active shape models."
+        Image processing and analysis (2000): 223-248.
+        :param shape: The shape to fit the model to
+        :return The fitted Shape and the mean squared error
+        """
 
         factors = np.zeros(self._model.modes())
         current_fit = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
@@ -78,21 +99,15 @@ class ShapeModel:
         for num_iters in range(max_iters):
             old_factors = factors.copy()
             current_fit = Shape.from_collapsed_shape(self._model.mean() + self._model.generate_deviation(factors))
-            #print current_fit.norm()
             htmatrix = current_fit.homogeneous_transformation_matrix(shape)
             inv_tmat = np.linalg.pinv(htmatrix)
-            # collapsed_shape = (Shape.from_homogeneous_coordinates(np.dot(shape.raw_homogeneous(), inv_tmat))).collapse()
             collapsed_shape = shape.transform(inv_tmat).collapse()
-            collapsed_shape = shape.align(current_fit).collapse()
-            #print Shape.from_collapsed_shape(collapsed_shape).norm()
             tangent_factor = np.dot(collapsed_shape, self._model.mean());
-            tangent_projection = collapsed_shape / (tangent_factor)
+            tangent_projection = collapsed_shape / tangent_factor
             error, factors = self._model.fit(tangent_projection)
-            # error, factors = self._model.fit(collapsed_shape)
             if np.linalg.norm(old_factors - factors) < tol:
-                break  # stuff by bharath
-        return current_fit.transform(htmatrix), error
-        #return current_fit.align(shape), error
+                break
+        return current_fit.transform(htmatrix), error, num_iters
 
     def fit_useless(self, shape):
 

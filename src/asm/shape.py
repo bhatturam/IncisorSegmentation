@@ -141,7 +141,7 @@ class Shape:
                          [rotation[1, 0], scaling[1] * rotation[1, 1], translation[1]],
                          [0, 0, 1]])
 
-    def align(self, other):
+    def align_using_transformation_matrix(self, other):
         """
         Aligns the current shape
         to the other shape  by
@@ -153,6 +153,25 @@ class Shape:
         """
         translation, scaling, rotation = self.transformation_matrix(other)
         return Shape(np.dot(self._data, rotation)).scale(scaling).translate(translation)
+
+    def align(self, other):
+        """
+        Aligns the current shape
+        to the other shape  by
+        finding a transformation matrix  a=sr by solving the
+        least squares solution of the equation
+        self*a= other
+        :param other: The other shape
+        :return: A shape aligned to other
+        """
+        translation = other.mean() - self.mean()
+        other_data = other.raw() - other.mean()
+        self_data = self._data - self.mean()
+        cov = np.dot(other_data.T, self_data)
+        btb = np.dot(other_data.T, other_data)
+        pic = np.linalg.pinv(cov)
+        a = np.dot(pic, btb)
+        return Shape(np.dot(self_data, a) + translation)
 
     def collapse(self):
         """
@@ -183,7 +202,7 @@ class Shape:
             return np.array([self._data[index] for index in neighborhood_indices])
         return np.array([])
 
-    def get_normal_at_point_generator(self, point_index, normal_neighborhood):
+    def normal_at_point_generator(self, point_index, normal_neighborhood):
         """
         Returns a function that can be used to generate coordinates of the normal at the given point
         :param point_index: The index of the query point in the shape
@@ -194,14 +213,14 @@ class Shape:
         line = cv2.fitLine(np.int32(neighborhood), 2, 0, 0.01, 0.01)
         slope = np.array([-line[1], line[0]])
         unit_slope = np.squeeze(slope / math.sqrt(np.sum(slope ** 2)))
-        point = self.get_point(point_index)
+        point = self.point(point_index)
 
         def normal_generator(increment):
             return point + increment * unit_slope
 
         return normal_generator
 
-    def get_point(self, point_index):
+    def point(self, point_index):
         """
         Returns the point at the given index
         :param point_index:  The index of the query point in the shape
@@ -380,8 +399,8 @@ class ShapeList:
         permitted (Default: 10000)
         :return: A new shape list with aligned shapes
         """
-        aligned_shapes = [shape.center().normalize() for shape in self._shapes]
-        mean_shape = aligned_shapes[0].normalize()
+        aligned_shapes = [shape.center() for shape in self._shapes]
+        mean_shape = aligned_shapes[0]
         for num_iters in range(max_iters):
             for i in range(len(aligned_shapes)):
                 aligned_shapes[i] = aligned_shapes[i].align(mean_shape)
