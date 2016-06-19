@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import cv2
-from asm.shape import Shape, ShapeList
+from active_shape_models.shape import Shape, ShapeList
 
 
 def load_landmark(filepath, mirrored=False, width=0):
@@ -30,7 +30,7 @@ def load_landmark(filepath, mirrored=False, width=0):
                 x_list.append(float(line) + width)
             else:
                 y_list.append(float(line))
-    return Shape.from_coordinate_lists_2d(x_list, y_list)
+    return Shape.from_coordinate_lists(x_list, y_list)
 
 
 def load_image(filepath):
@@ -299,21 +299,19 @@ class LeaveOneOutSplitter:
         return self._test_idx
 
     def get_training_set(self):
-        return [self._images[idx] for idx in self._training_idx], ShapeList([self._shapes[idx] for idx in self._training_idx]), [
-            self._segmentations[idx] for idx in self._training_idx]
+        return [self._images[idx] for idx in self._training_idx], ShapeList(
+            [self._shapes[idx] for idx in self._training_idx]), [
+                   self._segmentations[idx] for idx in self._training_idx]
 
     def get_test_example(self):
         return self._images[self._test_idx], self._shapes[self._test_idx], self._segmentations[self._test_idx]
 
-    def get_dice_error_on_test(self, detected_shape, use_landmark=False):
+    def get_dice_error_on_test(self, detected_shape):
         shape = detected_shape.round()
         bin_truth = self._segmentations[self._test_idx]
-        if use_landmark:
-            bin_truth = np.uint8(np.zeros(self._images[self._test_idx].shape))
-            cv2.drawContours(bin_truth, [self._shapes[self._test_idx].to_contour()], -1, (255, 255, 255), -1)
-            bin_truth[bin_truth > 0] = 1
-        bin_predicted = np.int8(np.zeros(bin_truth.shape))
-        cv2.drawContours(bin_predicted, [shape.to_contour()], -1, (255, 255, 255), -1)
+        bin_predicted = np.uint8(np.zeros(bin_truth.shape))
+        cv2.drawContours(bin_predicted, ShapeList.from_shape(shape, 8).as_list_of_contours(), -1,
+                         (255, 255, 255), -1)
         bin_predicted[bin_predicted > 0] = 1
         intersection = float(np.sum(np.sum(np.bitwise_and(bin_truth, bin_predicted))))
         union = float(np.sum(np.sum(np.bitwise_or(bin_truth, bin_predicted))))

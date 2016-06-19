@@ -12,14 +12,14 @@ def plot_shapes(shape_list):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     for shape in shape_list:
-        x_list, y_list = zip(*(shape.tolist()))
+        x_list, y_list = zip(*(shape.as_list_of_points()))
         ax.plot((-1 * np.array(x_list)).tolist(), (-1 * np.array(y_list)).tolist())
     plt.show()
 
 
 def overlay_shapes_on_image(img, shape_list):
     im = img.copy()
-    cv2.polylines(im, np.int32([shape.raw() for shape in shape_list]), True, (0, 255, 255))
+    cv2.polylines(im, np.int32([shape.as_numpy_matrix() for shape in shape_list]), True, (0, 255, 255))
     return im
 
 
