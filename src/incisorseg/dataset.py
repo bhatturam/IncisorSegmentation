@@ -4,6 +4,23 @@ import cv2
 from active_shape_models.shape import Shape, ShapeList
 
 
+def gaussian_pyramid_down(training_images, training_landmarks, test_image, test_landmark, num_levels, complete=False):
+    p_training_images = [training_images]
+    p_training_landmarks = [training_landmarks]
+    p_test_image = [test_image]
+    p_test_landmark = [test_landmark]
+    for l in range(1, num_levels):
+        p_test_image.append(cv2.pyrDown(p_test_image[l - 1]))
+        p_test_landmark.append(p_test_landmark[l - 1].pyr_down())
+        p_training_images.append([cv2.pyrDown(image) for image in p_training_images[l - 1]])
+        p_training_landmarks.append(ShapeList([shape.pyr_down() for shape in p_training_landmarks[l - 1]]))
+    if complete:
+        return p_training_images, p_training_landmarks, p_test_image, p_test_landmark
+    else:
+        return p_training_images[num_levels - 1], p_training_landmarks[num_levels - 1], p_test_image[num_levels - 1], \
+               p_test_landmark[num_levels - 1]
+
+
 def load_landmark(filepath, mirrored=False, width=0):
     """
     Creates a shape from a file containing 2D points
@@ -310,7 +327,7 @@ class LeaveOneOutSplitter:
         shape = detected_shape.round()
         bin_truth = self._segmentations[self._test_idx]
         bin_predicted = np.uint8(np.zeros(bin_truth.shape))
-        cv2.drawContours(bin_predicted, ShapeList.from_shape(shape, 8).as_list_of_contours(), -1,
+        cv2.drawContours(bin_predicted, ShapeList.from_shape(detected_shape, 8).as_list_of_contours(), -1,
                          (255, 255, 255), -1)
         bin_predicted[bin_predicted > 0] = 1
         intersection = float(np.sum(np.sum(np.bitwise_and(bin_truth, bin_predicted))))

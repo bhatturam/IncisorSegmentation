@@ -107,6 +107,10 @@ class Shape:
         r, _ = self._data.shape
         return r
 
+    def get_bounding_box(self):
+        raw_data = self.as_numpy_matrix()
+        return np.array([np.min(raw_data, axis=0), np.max(raw_data, axis=0)])
+
     def get_centroid(self):
         """
         Returns the centroid point of the shape points
@@ -256,7 +260,7 @@ class Shape:
 
     def transform(self, hmat):
         self_data = np.concatenate((self.as_numpy_matrix(), np.ones((self.get_size(), 1), dtype=float)), axis=1)
-        return Shape(np.dot(self_data, hmat)[:,0:2])
+        return Shape(np.dot(self_data, hmat)[:, 0:2])
 
     def align(self, other):
         return self.transform(self.get_transformation(other))
@@ -349,6 +353,10 @@ class ShapeList:
         :return: Shape object
         """
         return Shape(np.mean(self.as_numpy_matrix(), axis=0))
+
+    def get_bounding_box(self):
+        raw_data = self.as_numpy_matrix()
+        return np.array(np.min(np.min(raw_data, axis=0), axis=0), np.max(np.max(raw_data, axis=0), axis=0))
 
     def concatenate(self, other):
         """
