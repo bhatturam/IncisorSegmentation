@@ -467,11 +467,13 @@ class AppearanceModel:
         :param size: The size of the test_image
         :return: The mask image
         """
-        mask = np.uint8(np.zeros(size))
+        H, W = size
+        h, w = self._template.shape
+        mask = np.uint8(np.zeros((H - h + 1, W - w + 1)))
         reccord = np.uint32(np.round(self._init_shape.get_bounding_box()))
         extent = np.squeeze(np.uint32(np.round(np.diff(np.float32(reccord), axis=0) / np.array(self._extent_scale))))
-        cv2.rectangle(mask, (reccord[0, 0] - extent[0], reccord[0, 1] - extent[1]),
-                      (reccord[0, 0] + extent[0], reccord[0, 1] + extent[1]), (255, 0, 0), -1)
+        mask[(reccord[0, 1] - extent[1]):(
+            reccord[0, 1] + extent[1]), (reccord[0, 0] - extent[0]):(reccord[0, 0] + extent[0])] = 1
         return mask
 
     def __init__(self, training_images, pdm, extent_scale):
@@ -493,9 +495,8 @@ class AppearanceModel:
         """
         h, w = self._template.shape
         mask = self._build_search_mask(test_image.shape)
-
         ret = cv2.matchTemplate(test_image, self._template, method=cv2.TM_CCORR_NORMED)
-        _, _, _, maxLoc = cv2.minMaxLoc(ret, mask=mask)
+        _, _, _, maxLoc = cv2.minMaxLoc(ret * mask)
         translation = maxLoc + np.round([w / 2.0, h / 2.0])
         return self._init_shape.center().translate(translation)
 

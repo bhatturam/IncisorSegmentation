@@ -7,20 +7,20 @@ from active_shape_models.shape import Shape, ShapeList
 def gaussian_pyramid_down(training_images, num_levels, training_landmarks=None, complete=False):
     p_training_images = [training_images]
     p_training_landmarks = []
-    if training_landmarks != None:
+    if training_landmarks is not None:
         p_training_landmarks = [training_landmarks]
     for l in range(1, num_levels):
         p_training_images.append([cv2.pyrDown(image) for image in p_training_images[l - 1]])
-        if training_landmarks != None:
+        if training_landmarks is not None:
             p_training_landmarks.append(ShapeList([shape.pyr_down() for shape in p_training_landmarks[l - 1]]))
-    if complete or (training_images == None and training_landmarks == None):
+    if complete or (training_images is None and training_landmarks is None):
         return p_training_images, p_training_landmarks
-    if training_landmarks == None:
+    if training_landmarks is None:
         if not complete:
             return p_training_images[num_levels - 1]
         else:
             return p_training_images
-    elif training_landmarks != None:
+    elif training_landmarks is not None:
         if not complete:
             return p_training_images[num_levels - 1], p_training_landmarks[num_levels - 1]
         else:
@@ -30,20 +30,20 @@ def gaussian_pyramid_down(training_images, num_levels, training_landmarks=None, 
 def gaussian_pyramid_up(training_images, num_levels, training_landmarks=None, complete=False):
     p_training_images = [training_images]
     p_training_landmarks = []
-    if training_landmarks != None:
+    if training_landmarks is not None:
         p_training_landmarks = [training_landmarks]
     for l in range(1, num_levels):
         p_training_images.append([cv2.pyrUp(image) for image in p_training_images[l - 1]])
-        if training_landmarks != None:
+        if training_landmarks is not None:
             p_training_landmarks.append(ShapeList([shape.pyr_up() for shape in p_training_landmarks[l - 1]]))
-    if complete or (training_images == None and training_landmarks == None):
+    if complete or (training_images is None and training_landmarks is None):
         return p_training_images, p_training_landmarks
-    if training_landmarks == None:
+    if training_landmarks is None:
         if not complete:
             return p_training_images[num_levels - 1]
         else:
             return p_training_images
-    elif training_landmarks != None:
+    elif training_landmarks is not None:
         if not complete:
             return p_training_images[num_levels - 1], p_training_landmarks[num_levels - 1]
         else:
