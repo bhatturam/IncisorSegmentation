@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 from pca import PCAModel
 from shape import Shape
 
@@ -292,6 +293,15 @@ class PointDistributionModel:
     #             break
     #     return current_fit.align(shape), error, num_iters
     def fit(self, shape):
+        """
+        Refer Protocol 1 - Page 9 of
+         An Active Shape Model based on
+        Cootes, Tim, E. R. Baldock, and J. Graham.
+        "An introduction to active shape models."
+        Image processing and analysis (2000): 223-248.
+        :param shape: The shape to fit the model to
+        :return The fitted Shape and the mean squared error
+        """
         factors = np.zeros(self._model.get_number_of_modes())
         current_fit = self.generate(factors)
         hmat = current_fit.get_transformation(shape)
@@ -303,7 +313,6 @@ class PointDistributionModel:
             hmat = current_fit.get_transformation(shape)
             collapsed_shape = shape.transform(np.linalg.pinv(hmat)).project_to_tangent_space(
                 current_fit).as_collapsed_vector()
-            # collapsed_shape = shape.align(current_fit).as_collapsed_vector()
             error, _, factors = self._model.fit(collapsed_shape)
             if np.linalg.norm(old_factors - factors) < self._shape_fit_tol:
                 break
@@ -330,7 +339,7 @@ class GreyModel:
 
     def __init__(self, training_images, training_shape_list, patch_num_pixels, search_num_pixels, use_gradient=False,
                  normalize_patch=False, use_moded_pca_model=False, mpca_variance_captured=0.9,
-                 normal_point_neighborhood=4):
+                 normal_point_neighborhood=2):
         self._point_models = []
         self._using_pca_model = use_moded_pca_model
         self._search_num_pixels = search_num_pixels
@@ -413,12 +422,82 @@ class GreyModel:
             for i in range(1 + len(test_patch) - patch_size):
                 select_range = range(i, i + patch_size)
                 error, _, _ = grey_model.fit(test_patch[select_range])
-                if error < min_error:
+                if error <= min_error:
                     min_index = i
                     min_error = error
             point_list.append(coordinate_list[min_index + self._patch_num_pixels])
             error_list.append(min_error)
         return Shape(np.array(point_list)), np.array(error_list)
+
+
+class AppearanceModel:
+    """
+        An appearance model used to quickly find an initial solution using
+        normalized cross correlation based template matching in a zone restricted
+        by the centroid of the training shapes
+        Attributes:
+            _template: The template generated from the training_images
+            _init_shape: The centroid used by the PDM for initialization
+            _extent_scale: The [x,y] scaling factor to control the mask for template search
+
+
+        Authors: David Torrejon and Bharath Venkatesh
+    """
+
+    def _build_template(self, training_images, pdm):
+        """
+        Builds the template that need to be matched
+        :param training_images: The set of training images
+        :param pdm: A point distribution model built from the corresponding landmarks
+        """
+        landmarks = pdm.get_shapes()
+        all_bbox = landmarks.get_mean_shape().get_bounding_box()
+        patch_size = np.squeeze(np.uint32(np.round(np.diff(all_bbox, axis=0))))
+        datalist = []
+        for j in range(len(landmarks)):
+            shape_bbox = np.uint32(np.round(landmarks[j].get_bounding_box()))
+            cropped = training_images[j][shape_bbox[0, 1]:shape_bbox[1, 1], shape_bbox[0, 0]:shape_bbox[1, 0]]
+            img = cv2.resize(cropped, (patch_size[0], patch_size[1]))
+            datalist.append(img)
+        self._template = np.uint8(np.mean(np.array(datalist), axis=0))
+
+    def _build_search_mask(self, size):
+        """
+        Builds a mask controlled by extent_scale to restrict the zone of template search
+        :param size: The size of the test_image
+        :return: The mask image
+        """
+        mask = np.uint8(np.zeros(size))
+        reccord = np.uint32(np.round(self._init_shape.get_bounding_box()))
+        extent = np.squeeze(np.uint32(np.round(np.diff(np.float32(reccord), axis=0) / np.array(self._extent_scale))))
+        cv2.rectangle(mask, (reccord[0, 0] - extent[0], reccord[0, 1] - extent[1]),
+                      (reccord[0, 0] + extent[0], reccord[0, 1] + extent[1]), (255, 0, 0), -1)
+        return mask
+
+    def __init__(self, training_images, pdm, extent_scale):
+        """
+        Builds an appearance model
+        :param training_images: The set of training images
+        :param pdm: A point distribution model built from the corresponding landmarks
+        :param extent_scale:  The [x,y] scaling factor to control the mask for template search
+        """
+        self._init_shape = pdm.get_mean_shape_projected()
+        self._build_template(training_images, pdm)
+        self._extent_scale = extent_scale
+
+    def fit(self, test_image):
+        """
+        Perform the template matching operation to identify the initial shape
+        :param test_image: The test image
+        :return: Shape corressponding to the match
+        """
+        h, w = self._template.shape
+        mask = self._build_search_mask(test_image.shape)
+
+        ret = cv2.matchTemplate(test_image, self._template, method=cv2.TM_CCORR_NORMED)
+        _, _, _, maxLoc = cv2.minMaxLoc(ret, mask=mask)
+        translation = maxLoc + np.round([w / 2.0, h / 2.0])
+        return self._init_shape.center().translate(translation)
 
 
 class ActiveShapeModel:
@@ -430,12 +509,14 @@ class ActiveShapeModel:
     Attributes:
     _pdm The underlying point distribution model (PointDistributionModel)
     _gm The underlying grey model (ModedPCAModel or GaussianModel)
+    _am The underlying appearance model
     Authors: David Torrejon and Bharath Venkatesh
     """
 
-    def __init__(self, point_distribution_model, grey_model):
+    def __init__(self, point_distribution_model, grey_model, appearance_model=None):
         self._pdm = point_distribution_model
         self._gm = grey_model
+        self._am = appearance_model
 
     def get_pdm(self):
         """
@@ -468,7 +549,10 @@ class ActiveShapeModel:
         :return: The final Shape, the fit error and the number of iterations performed
         """
         if initial_shape is None:
-            current_shape = self.get_default_initial_shape()
+            if self._am is None:
+                current_shape = self.get_default_initial_shape()
+            else:
+                current_shape = self._am.fit(test_image)
         else:
             current_shape = initial_shape.round()
         num_iter = 0

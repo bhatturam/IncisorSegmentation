@@ -175,6 +175,37 @@ class Shape:
 
         return normal_generator
 
+    def get_transformation(self, other):
+        """
+        Returns the transformation matrix (homogeneous coordinates)
+        to transform this shape to the other shape
+        Refer Appendix C of Cootes, Timothy F., and Cristopher J. Taylor.
+        "Statistical models of appearance for computer vision." (2004).
+        for more details
+        :param other: The other Shape
+        :return: The 3x3 transformation matrix
+        """
+        n = self.get_size()
+        p = self.as_numpy_matrix()
+        q = other.as_numpy_matrix()
+        sx = np.sum(p[:, 0])
+        sy = np.sum(p[:, 1])
+        sxd = np.sum(q[:, 0])
+        syd = np.sum(q[:, 1])
+        sxx = np.sum(p[:, 0] ** 2)
+        syy = np.sum(p[:, 1] ** 2)
+        sxxd = np.sum(np.multiply(p[:, 0], q[:, 0]))
+        syyd = np.sum(np.multiply(p[:, 1], q[:, 1]))
+        sxyd = np.sum(np.multiply(p[:, 0], q[:, 1]))
+        syxd = np.sum(np.multiply(q[:, 1], p[:, 0]))
+        A = np.array([[sxx + syy, 0, sx, sy],
+                      [0, sxx + syy, -sy, sx],
+                      [sx, -sy, n, 0],
+                      [sy, sx, 0, n]])
+        b = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
+        tmat = np.dot(np.linalg.pinv(A), b)
+        return np.array([[tmat[0], tmat[1], 0], [-tmat[1], tmat[0], 0], [tmat[2], tmat[3], 1]])
+
     '''
     SHAPE TRANSFORMATIONS AND OPERATIONS
     '''
@@ -207,7 +238,20 @@ class Shape:
         return Shape(self._data / np.linalg.norm(self.as_collapsed_vector()))
 
     def project_to_tangent_space(self, other):
+        """
+        Projects the current space to the tangent space of the other shape
+        :param other: The other Shape
+        :return: The tangent projected shape
+        """
         return Shape(self._data / np.dot(other.as_collapsed_vector(), self.as_collapsed_vector()))
+
+    def scale(self, scaling):
+        """
+        Returns the current shape scaled by the specified displacement vector
+        :param displacement: The 2d vector of scaling
+        :return: A shape object containing the scaled shape
+        """
+        return Shape(self._data * scaling)
 
     def translate(self, displacement):
         """
@@ -236,33 +280,20 @@ class Shape:
     #     a = np.dot(pic, btb)
     #     return Shape(np.dot(self_data, a) + translation)
 
-    def get_transformation(self, other):
-        n = self.get_size()
-        p = self.as_numpy_matrix()
-        q = other.as_numpy_matrix()
-        sx = np.sum(p[:, 0])
-        sy = np.sum(p[:, 1])
-        sxd = np.sum(q[:, 0])
-        syd = np.sum(q[:, 1])
-        sxx = np.sum(p[:, 0] ** 2)
-        syy = np.sum(p[:, 1] ** 2)
-        sxxd = np.sum(np.multiply(p[:, 0], q[:, 0]))
-        syyd = np.sum(np.multiply(p[:, 1], q[:, 1]))
-        sxyd = np.sum(np.multiply(p[:, 0], q[:, 1]))
-        syxd = np.sum(np.multiply(q[:, 1], p[:, 0]))
-        A = np.array([[sxx + syy, 0, sx, sy],
-                      [0, sxx + syy, -sy, sx],
-                      [sx, -sy, n, 0],
-                      [sy, sx, 0, n]])
-        b = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
-        tmat = np.dot(np.linalg.pinv(A), b)
-        return np.array([[tmat[0], tmat[1], 0], [-tmat[1], tmat[0], 0], [tmat[2], tmat[3], 1]])
-
     def transform(self, hmat):
         self_data = np.concatenate((self.as_numpy_matrix(), np.ones((self.get_size(), 1), dtype=float)), axis=1)
         return Shape(np.dot(self_data, hmat)[:, 0:2])
 
     def align(self, other):
+        """
+        Aligns the current shape
+        to the other shape  by
+        finding a transformation matrix  a=sr by solving the
+        least squares solution of the equation
+        self*a= other
+        :param other: The other shape
+        :return: A shape aligned to other
+        """
         return self.transform(self.get_transformation(other))
 
     def round(self):

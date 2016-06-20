@@ -4,21 +4,50 @@ import cv2
 from active_shape_models.shape import Shape, ShapeList
 
 
-def gaussian_pyramid_down(training_images, training_landmarks, test_image, test_landmark, num_levels, complete=False):
+def gaussian_pyramid_down(training_images, num_levels, training_landmarks=None, complete=False):
     p_training_images = [training_images]
-    p_training_landmarks = [training_landmarks]
-    p_test_image = [test_image]
-    p_test_landmark = [test_landmark]
+    p_training_landmarks = []
+    if training_landmarks != None:
+        p_training_landmarks = [training_landmarks]
     for l in range(1, num_levels):
-        p_test_image.append(cv2.pyrDown(p_test_image[l - 1]))
-        p_test_landmark.append(p_test_landmark[l - 1].pyr_down())
         p_training_images.append([cv2.pyrDown(image) for image in p_training_images[l - 1]])
-        p_training_landmarks.append(ShapeList([shape.pyr_down() for shape in p_training_landmarks[l - 1]]))
-    if complete:
-        return p_training_images, p_training_landmarks, p_test_image, p_test_landmark
-    else:
-        return p_training_images[num_levels - 1], p_training_landmarks[num_levels - 1], p_test_image[num_levels - 1], \
-               p_test_landmark[num_levels - 1]
+        if training_landmarks != None:
+            p_training_landmarks.append(ShapeList([shape.pyr_down() for shape in p_training_landmarks[l - 1]]))
+    if complete or (training_images == None and training_landmarks == None):
+        return p_training_images, p_training_landmarks
+    if training_landmarks == None:
+        if not complete:
+            return p_training_images[num_levels - 1]
+        else:
+            return p_training_images
+    elif training_landmarks != None:
+        if not complete:
+            return p_training_images[num_levels - 1], p_training_landmarks[num_levels - 1]
+        else:
+            return p_training_images, p_training_landmarks
+
+
+def gaussian_pyramid_up(training_images, num_levels, training_landmarks=None, complete=False):
+    p_training_images = [training_images]
+    p_training_landmarks = []
+    if training_landmarks != None:
+        p_training_landmarks = [training_landmarks]
+    for l in range(1, num_levels):
+        p_training_images.append([cv2.pyrUp(image) for image in p_training_images[l - 1]])
+        if training_landmarks != None:
+            p_training_landmarks.append(ShapeList([shape.pyr_up() for shape in p_training_landmarks[l - 1]]))
+    if complete or (training_images == None and training_landmarks == None):
+        return p_training_images, p_training_landmarks
+    if training_landmarks == None:
+        if not complete:
+            return p_training_images[num_levels - 1]
+        else:
+            return p_training_images
+    elif training_landmarks != None:
+        if not complete:
+            return p_training_images[num_levels - 1], p_training_landmarks[num_levels - 1]
+        else:
+            return p_training_images, p_training_landmarks
 
 
 def load_landmark(filepath, mirrored=False, width=0):
@@ -338,9 +367,11 @@ class LeaveOneOutSplitter:
         return self
 
     def next(self):
-        if self._test_idx > len(self._images) - 2:
+        if self._test_idx > len(self._images) / 2 - 1:
             raise StopIteration
         else:
             self._test_idx += 1
-            self._training_idx = range(0, self._test_idx) + range(self._test_idx + 1, len(self._images))
+            self._training_idx = range(0, self._test_idx) + range(self._test_idx + 1, len(self._images) / 2) + range(
+                len(self._images) / 2, self._test_idx + len(self._images) / 2) + range(
+                self._test_idx + 1 + len(self._images) / 2, len(self._images))
             return self
