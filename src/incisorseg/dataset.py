@@ -4,6 +4,11 @@ import cv2
 from active_shape_models.shape import Shape, ShapeList
 
 
+def tooth_splitter(complete_landmarks, num_parts):
+    return [ShapeList(list(item)) for item in
+            list(zip(*[tuple(ShapeList.from_shape(shape, num_parts)) for shape in complete_landmarks]))]
+
+
 def gaussian_pyramid_down(training_images, num_levels, training_landmarks=None, complete=False):
     p_training_images = [training_images]
     p_training_landmarks = []

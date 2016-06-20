@@ -461,20 +461,30 @@ class AppearanceModel:
             datalist.append(img)
         self._template = np.uint8(np.mean(np.array(datalist), axis=0))
 
-    def _build_search_mask(self, size):
+    def _build_search_mask(self, test_size, corrmap_size):
         """
         Builds a mask controlled by extent_scale to restrict the zone of template search
-        :param size: The size of the test_image
+        :param test_size: The size of the test_image
         :return: The mask image
         """
-        H, W = size
-        h, w = self._template.shape
-        mask = np.uint8(np.zeros((H - h + 1, W - w + 1)))
-        reccord = np.uint32(np.round(self._init_shape.get_bounding_box()))
-        extent = np.squeeze(np.uint32(np.round(np.diff(np.float32(reccord), axis=0) / np.array(self._extent_scale))))
-        mask[(reccord[0, 1] - extent[1]):(
-            reccord[0, 1] + extent[1]), (reccord[0, 0] - extent[0]):(reccord[0, 0] + extent[0])] = 1
-        return mask
+        if corrmap_size == test_size:
+            mask = np.uint8(np.zeros(test_size))
+            reccord = np.uint32(np.round(self._init_shape.get_bounding_box()))
+            extent = np.squeeze(
+                np.uint32(np.round(np.diff(np.float32(reccord), axis=0) / np.array(self._extent_scale))))
+            cv2.rectangle(mask, (reccord[0, 0] - extent[0], reccord[0, 1] - extent[1]),
+                          (reccord[0, 0] + extent[0], reccord[0, 1] + extent[1]), (255, 0, 0), -1)
+            return mask
+        else:
+            hh, ww = test_size
+            h, w = self._template.shape
+            mask = np.uint8(np.zeros((hh - h + 1, ww - w + 1)))
+            reccord = np.uint32(np.round(self._init_shape.get_bounding_box()))
+            extent = np.squeeze(
+                np.uint32(np.round(np.diff(np.float32(reccord), axis=0) / np.array(self._extent_scale))))
+            mask[(reccord[0, 1] - extent[1]):(
+                reccord[0, 1] + extent[1]), (reccord[0, 0] - extent[0]):(reccord[0, 0] + extent[0])] = 1
+            return mask
 
     def __init__(self, training_images, pdm, extent_scale):
         """
@@ -494,10 +504,14 @@ class AppearanceModel:
         :return: Shape corressponding to the match
         """
         h, w = self._template.shape
-        mask = self._build_search_mask(test_image.shape)
         ret = cv2.matchTemplate(test_image, self._template, method=cv2.TM_CCORR_NORMED)
-        _, _, _, maxLoc = cv2.minMaxLoc(ret * mask)
-        translation = maxLoc + np.round([w / 2.0, h / 2.0])
+        mask = self._build_search_mask(test_image.shape, ret.shape)
+        max_loc = None
+        if ret.shape == test_image.shape:
+            _, _, _, max_loc = cv2.minMaxLoc(ret, mask=mask)
+        else:
+            _, _, _, max_loc = cv2.minMaxLoc(ret * mask)
+        translation = max_loc + np.round([w / 2.0, h / 2.0])
         return self._init_shape.center().translate(translation)
 
 
