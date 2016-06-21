@@ -27,14 +27,20 @@ class ModedPCAModel:
 
     """
 
-    def __init__(self, x, pca_variance_captured=0.9):
+    def __init__(self, x, pca_variance_captured=0.9, pca_number_of_components=None, pca_model=None):
         """
         Constructs the Active Shape Model based on the given list of Shapes.
         :param x: The data matrix
         :param pca_variance_captured: The fraction of variance to be captured by the moded model
         """
-        self._model = PCAModel(x)
-        self._modes = self._model.get_k_cutoff(pca_variance_captured)
+        if pca_model is None:
+            self._model = PCAModel(x)
+        else:
+            self._model = pca_model
+        if pca_number_of_components is None:
+            self._modes = self._model.get_k_cutoff(pca_variance_captured)
+        else:
+            self._modes = pca_number_of_components
         self._b_max = np.multiply(np.sqrt(self._model.get_eigenvalues()[0:self._modes]), 3.0)
 
     def get_mean(self):
@@ -169,22 +175,30 @@ class PointDistributionModel:
 
     """
 
-    def __init__(self, shape_list, pca_variance_captured=0.9, gpa_tol=1e-7, gpa_max_iters=10000, shape_fit_tol=1e-7,
+    def __init__(self, shape_list, pca_variance_captured=0.9, pca_number_of_components=None,
+                 project_to_tangent_space=True, gpa_tol=1e-7,
+                 gpa_max_iters=10000, shape_fit_tol=1e-7,
                  shape_fit_max_iters=10000):
         """
         Constructs the Active Shape Model based on the given list of Shapes.
+        :param pca_number_of_components:
+        :param project_to_tangent_space: project to tangent space while aligning and fitting
+        :param shape_fit_tol: The convergence threshold for shape fitting
+        :param shape_fit_max_iters: The maximum number of iterations for shape fitting
         :param shape_list: A ShapeList object
         :param pca_variance_captured: The fraction of variance to be captured by the shape model
         :param gpa_tol: tol: The convergence threshold for gpa
         (Default: 1e-7)
-        :param gpa_max_iters: The maximum number of iterations
+        :param gpa_max_iters: The maximum number of iterations for gpa
         permitted for gpa (Default: 10000)
         """
         self._shapes = shape_list
-        self._aligned_shapes = self._shapes.align(gpa_tol, gpa_max_iters)
-        self._model = ModedPCAModel(self._aligned_shapes.as_collapsed_vector(), pca_variance_captured)
+        self._tangent_space_projection = project_to_tangent_space
+        self._aligned_shapes = self._shapes.align(gpa_tol, gpa_max_iters, self._tangent_space_projection)
         self._shape_fit_tol = shape_fit_tol
         self._shape_fit_max_iters = shape_fit_max_iters
+        self._model = ModedPCAModel(self._aligned_shapes.as_collapsed_vector(), pca_variance_captured,
+                                    pca_number_of_components)
 
     def get_moded_pca_model(self):
         """
@@ -306,17 +320,21 @@ class PointDistributionModel:
         current_fit = self.generate(factors)
         hmat = current_fit.get_transformation(shape)
         num_iters = 0
-        error = float("inf")
         for num_iters in range(self._shape_fit_max_iters):
             old_factors = factors.copy()
             current_fit = self.generate(factors)
             hmat = current_fit.get_transformation(shape)
-            collapsed_shape = shape.transform(np.linalg.pinv(hmat)).project_to_tangent_space(
-                current_fit).as_collapsed_vector()
-            error, _, factors = self._model.fit(collapsed_shape)
+            if self._tangent_space_projection:
+                collapsed_shape = shape.transform(np.linalg.pinv(hmat)).project_to_tangent_space(
+                    current_fit).as_collapsed_vector()
+            else:
+                collapsed_shape = shape.transform(np.linalg.pinv(hmat)).as_collapsed_vector()
+            _, _, factors = self._model.fit(collapsed_shape)
             if np.linalg.norm(old_factors - factors) < self._shape_fit_tol:
                 break
-        return current_fit.transform(hmat), error, num_iters
+        final_shape = current_fit.transform(hmat)
+        error = np.sum(np.sum(np.abs(final_shape.as_numpy_matrix() - shape.as_numpy_matrix()), axis=1))
+        return final_shape, error, num_iters
 
 
 class GreyModel:
@@ -461,6 +479,9 @@ class AppearanceModel:
             datalist.append(img)
         self._template = np.uint8(np.mean(np.array(datalist), axis=0))
 
+    def get_template(self):
+        return self._template
+
     def _build_search_mask(self, test_size, corrmap_size):
         """
         Builds a mask controlled by extent_scale to restrict the zone of template search
@@ -506,7 +527,6 @@ class AppearanceModel:
         h, w = self._template.shape
         ret = cv2.matchTemplate(test_image, self._template, method=cv2.TM_CCORR_NORMED)
         mask = self._build_search_mask(test_image.shape, ret.shape)
-        max_loc = None
         if ret.shape == test_image.shape:
             _, _, _, max_loc = cv2.minMaxLoc(ret, mask=mask)
         else:

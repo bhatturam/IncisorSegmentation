@@ -192,18 +192,18 @@ class Shape:
         sy = np.sum(p[:, 1])
         sxd = np.sum(q[:, 0])
         syd = np.sum(q[:, 1])
-        sxx = np.sum(p[:, 0] ** 2)
-        syy = np.sum(p[:, 1] ** 2)
+        sxx = np.sum(np.power(p[:, 0], 2))
+        syy = np.sum(np.power(p[:, 1], 2))
         sxxd = np.sum(np.multiply(p[:, 0], q[:, 0]))
         syyd = np.sum(np.multiply(p[:, 1], q[:, 1]))
         sxyd = np.sum(np.multiply(p[:, 0], q[:, 1]))
         syxd = np.sum(np.multiply(q[:, 1], p[:, 0]))
-        A = np.array([[sxx + syy, 0, sx, sy],
+        a = np.array([[sxx + syy, 0, sx, sy],
                       [0, sxx + syy, -sy, sx],
                       [sx, -sy, n, 0],
                       [sy, sx, 0, n]])
         b = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
-        tmat = np.dot(np.linalg.pinv(A), b)
+        tmat = np.dot(np.linalg.pinv(a), b)
         return np.array([[tmat[0], tmat[1], 0], [-tmat[1], tmat[0], 0], [tmat[2], tmat[3], 1]])
 
     '''
@@ -227,15 +227,16 @@ class Shape:
         """
         return Shape(self._data - self.get_centroid())
 
-    def normalize(self):
+    def normalize(self, normalize_over_all_elements=True):
         """
         Returns a new shape containing this shape
         scaled to unit norm
-
+        :param normalize_over_all_elements: |x|=1
         :return: A Shape object, scaled to unit norm
         """
-        # return Shape(self._data / self.get_norm())
-        return Shape(self._data / np.linalg.norm(self.as_collapsed_vector()))
+        if normalize_over_all_elements:
+            return Shape(self._data / np.linalg.norm(self.as_collapsed_vector()))
+        return Shape(self._data / self.get_norm())
 
     def project_to_tangent_space(self, other):
         """
@@ -248,7 +249,7 @@ class Shape:
     def scale(self, scaling):
         """
         Returns the current shape scaled by the specified displacement vector
-        :param displacement: The 2d vector of scaling
+        :param scaling: The 2d vector of scaling
         :return: A shape object containing the scaled shape
         """
         return Shape(self._data * scaling)
@@ -261,40 +262,31 @@ class Shape:
         """
         return Shape(self._data + displacement)
 
-    # def align(self, other):
-    #     """
-    #     Aligns the current shape
-    #     to the other shape  by
-    #     finding a transformation matrix  a=sr by solving the
-    #     least squares solution of the equation
-    #     self*a= other
-    #     :param other: The other shape
-    #     :return: A shape aligned to other
-    #     """
-    #     translation = other.get_centroid() - self.get_centroid()
-    #     other_data = other.as_numpy_matrix() - other.get_centroid()
-    #     self_data = self._data - self.get_centroid()
-    #     cov = np.dot(other_data.T, self_data)
-    #     btb = np.dot(other_data.T, other_data)
-    #     pic = np.linalg.pinv(cov)
-    #     a = np.dot(pic, btb)
-    #     return Shape(np.dot(self_data, a) + translation)
-
     def transform(self, hmat):
         self_data = np.concatenate((self.as_numpy_matrix(), np.ones((self.get_size(), 1), dtype=float)), axis=1)
         return Shape(np.dot(self_data, hmat)[:, 0:2])
 
-    def align(self, other):
+    def align(self, other, use_transformation_matrix=True):
         """
         Aligns the current shape
         to the other shape  by
         finding a transformation matrix  a=sr by solving the
         least squares solution of the equation
         self*a= other
+        :param use_transformation_matrix: Use get_transformation_matrix()
         :param other: The other shape
         :return: A shape aligned to other
         """
-        return self.transform(self.get_transformation(other))
+        if use_transformation_matrix:
+            return self.transform(self.get_transformation(other))
+        translation = other.get_centroid() - self.get_centroid()
+        other_data = other.as_numpy_matrix() - other.get_centroid()
+        self_data = self._data - self.get_centroid()
+        cov = np.dot(other_data.T, self_data)
+        btb = np.dot(other_data.T, other_data)
+        pic = np.linalg.pinv(cov)
+        a = np.dot(pic, btb)
+        return Shape(np.dot(self_data, a) + translation)
 
     def round(self):
         """
@@ -397,7 +389,7 @@ class ShapeList:
         """
         return ShapeList(self._shapes + other.as_list_of_shapes())
 
-    def align(self, tol=1e-7, max_iters=10000):
+    def align(self, tol=1e-7, max_iters=10000, project_to_tangent_space=True):
         """
         Performs Generalized Procrustes Analysis to align a list of shapes
         to a common coordinate system. Implementation based on Appendix A of
@@ -405,21 +397,28 @@ class ShapeList:
         Cootes, Tim, E. R. Baldock, and J. Graham.
         "An introduction to active shape models."
         Image processing and analysis (2000): 223-248.
+        :param project_to_tangent_space: Project to tangent space
         :param tol: The convergence threshold for gpa
         (Default: 1e-7)
         :param max_iters: The maximum number of iterations
         permitted (Default: 10000)
         :return: A new shape list with aligned shapes
         """
+        if not project_to_tangent_space:
+            normalize_over_all_elements = False
+        else:
+            normalize_over_all_elements = True
         aligned_shapes = [shape.center() for shape in self._shapes]
-        mean_shape = aligned_shapes[0].normalize()
+        mean_shape = aligned_shapes[0].normalize(normalize_over_all_elements)
         for num_iters in range(max_iters):
             for i in range(len(aligned_shapes)):
                 aligned_shapes[i] = aligned_shapes[i].align(mean_shape)
-                aligned_shapes[i].project_to_tangent_space(mean_shape)
+                if project_to_tangent_space:
+                    aligned_shapes[i].project_to_tangent_space(mean_shape)
             previous_mean_shape = mean_shape
             mean_shape = Shape(
-                np.mean(np.array([shape.as_numpy_matrix() for shape in aligned_shapes]), axis=0)).center().normalize()
+                np.mean(np.array([shape.as_numpy_matrix() for shape in aligned_shapes]), axis=0)).center().normalize(
+                normalize_over_all_elements)
             if np.linalg.norm(mean_shape.as_numpy_matrix() - previous_mean_shape.as_numpy_matrix()) < tol:
                 break
         return ShapeList(aligned_shapes)

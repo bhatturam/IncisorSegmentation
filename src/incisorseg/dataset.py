@@ -2,6 +2,37 @@ import os
 import numpy as np
 import cv2
 from active_shape_models.shape import Shape, ShapeList
+from active_shape_models.models import PointDistributionModel
+
+
+def tooth_models(all_training_landmarks, all_test_landmark, pca_variance_captured=0.99,
+                 project_to_tangent_space=False):
+    model_list = []
+    error_list = []
+    training_landmarks_list = []
+    test_landmark_list = []
+    for num_parts in [1, 2, 4, 8]:
+        split_training_landmarks = tooth_splitter(all_training_landmarks, num_parts)
+        split_test_landmark = tooth_splitter([all_test_landmark], num_parts)
+        sub_model_list = []
+        sub_error_list = []
+        sub_training_landmarks_list = []
+        sub_test_landmark_list = []
+        for split_part in range(num_parts):
+            training_landmarks = split_training_landmarks[split_part]
+            test_landmark = split_test_landmark[split_part][0]
+            model = PointDistributionModel(training_landmarks, project_to_tangent_space=project_to_tangent_space,
+                                           pca_variance_captured=pca_variance_captured)
+            _, fit_error, _ = model.fit(test_landmark)
+            sub_error_list.append(fit_error / test_landmark.get_size())
+            sub_model_list.append(model)
+            sub_test_landmark_list.append(test_landmark)
+            sub_training_landmarks_list.append(training_landmarks)
+        model_list.append(sub_model_list)
+        error_list.append(sub_error_list)
+        training_landmarks_list.append(sub_training_landmarks_list)
+        test_landmark_list.append(sub_test_landmark_list)
+    return model_list, training_landmarks_list, test_landmark_list, error_list
 
 
 def tooth_splitter(complete_landmarks, num_parts):
@@ -125,6 +156,7 @@ class Dataset:
     _tooth_count = 8
     TOP_TEETH = range(4, 8)
     BOTTOM_TEETH = range(4)
+    MIDDLE_TEETH = [1, 2, 5, 6]
     ALL_TEETH = range(_tooth_count)
     ALL_TRAINING_IMAGES = range(_training_image_count)
 
