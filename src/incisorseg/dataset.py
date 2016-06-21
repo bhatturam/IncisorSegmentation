@@ -2,15 +2,46 @@ import os
 import numpy as np
 import cv2
 from active_shape_models.shape import Shape, ShapeList
-from active_shape_models.models import PointDistributionModel
+from active_shape_models.models import PointDistributionModel,AppearanceModel
 
+def appearance_model_eight_teeth(training_images,training_landmarks,test_image,pyr_levels=0,top_extent=[6,6]):
+    scaled_training_images,scaled_training_landmarks = gaussian_pyramid_down(training_images,num_levels=pyr_levels, training_landmarks=training_landmarks)
+    scaled_test_image = gaussian_pyramid_down([test_image],num_levels=pyr_levels)[0]
+    shape_model = PointDistributionModel(scaled_training_landmarks)
+    app_model = AppearanceModel(scaled_training_images,shape_model,top_extent,[1,1])
+    initial_shape = app_model.fit(scaled_test_image)
+    for i in range(1,pyr_levels):
+        initial_shape=initial_shape.pyr_up()
+    return initial_shape
 
-def tooth_models(all_training_landmarks, all_test_landmark, pca_variance_captured=0.99,
+def appearance_model_four_teeth(training_images,training_landmarks,test_image,pyr_levels=0,top_extent=[7,7],top_scale=[1.1,1.1],bottom_extent=[6,6],bottom_scale=[1.05,1.1]):
+    scaled_training_images,scaled_training_landmarks = gaussian_pyramid_down(training_images,num_levels=pyr_levels, training_landmarks=training_landmarks)
+    scaled_test_image = gaussian_pyramid_down([test_image],num_levels=pyr_levels)[0]
+    transformed_test_image = scaled_test_image
+    transformed_training_images =  scaled_training_images
+    #transformed_training_images = [cv2.bilateralFilter(image,5,30,30) for image in transformed_training_images]
+    #transformed_training_images = [cv2.Canny(image,3,30) for image in transformed_training_images]
+    #transformed_test_image = cv2.bilateralFilter(transformed_test_image,5,30,30)
+    #transformed_test_image = cv2.Canny(transformed_test_image,3,30)
+    split_training_landmarks = tooth_splitter(scaled_training_landmarks, 2)
+    shape_model_top = PointDistributionModel(split_training_landmarks[0])
+    shape_model_bottom = PointDistributionModel(split_training_landmarks[1])
+    app_model_top = AppearanceModel(transformed_training_images,shape_model_top,top_extent,top_scale)
+    app_model_bottom = AppearanceModel(transformed_training_images,shape_model_bottom,bottom_extent,bottom_scale)
+    shape_top= app_model_top.fit(transformed_test_image)
+    shape_bottom= app_model_bottom.fit(transformed_test_image)
+    shape = shape_top.concatenate(shape_bottom)
+    for i in range(1,pyr_levels):
+        shape=shape.pyr_up()
+    return shape
+
+def tooth_models(all_training_landmarks, all_test_landmark, pca_variance_captured=[0.9,0.9,0.9,0.9],
                  project_to_tangent_space=False):
     model_list = []
     error_list = []
     training_landmarks_list = []
     test_landmark_list = []
+    ctr = 0
     for num_parts in [1, 2, 4, 8]:
         split_training_landmarks = tooth_splitter(all_training_landmarks, num_parts)
         split_test_landmark = tooth_splitter([all_test_landmark], num_parts)
@@ -22,7 +53,7 @@ def tooth_models(all_training_landmarks, all_test_landmark, pca_variance_capture
             training_landmarks = split_training_landmarks[split_part]
             test_landmark = split_test_landmark[split_part][0]
             model = PointDistributionModel(training_landmarks, project_to_tangent_space=project_to_tangent_space,
-                                           pca_variance_captured=pca_variance_captured)
+                                           pca_variance_captured=pca_variance_captured[ctr])
             _, fit_error, _ = model.fit(test_landmark)
             sub_error_list.append(fit_error / test_landmark.get_size())
             sub_model_list.append(model)
@@ -32,6 +63,8 @@ def tooth_models(all_training_landmarks, all_test_landmark, pca_variance_capture
         error_list.append(sub_error_list)
         training_landmarks_list.append(sub_training_landmarks_list)
         test_landmark_list.append(sub_test_landmark_list)
+        ctr+=1
+
     return model_list, training_landmarks_list, test_landmark_list, error_list
 
 

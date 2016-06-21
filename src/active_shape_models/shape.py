@@ -27,10 +27,13 @@ class Shape:
         Initializes a shape from a nx2 numpy matrix of points
         :param data: a numpy matrix of shape (n,2)
         """
-        n, d = data.shape
-        if not d == 2:
-            raise ValueError("Class currently only supports 2D shapes")
-        self._data = np.copy(data)
+        if data is not None:
+            n, d = data.shape
+            if d != 2:
+                raise ValueError("Class currently only supports 2D shapes")
+            self._data = np.copy(data)
+        else:
+            self._data = np.array([])
 
     @classmethod
     def from_collapsed_vector(cls, shape_vector):
@@ -175,7 +178,8 @@ class Shape:
 
         return normal_generator
 
-    def get_transformation(self, other):
+
+    def get_transformation(self, other,allow_affine=False):
         """
         Returns the transformation matrix (homogeneous coordinates)
         to transform this shape to the other shape
@@ -193,18 +197,36 @@ class Shape:
         sxd = np.sum(q[:, 0])
         syd = np.sum(q[:, 1])
         sxx = np.sum(np.power(p[:, 0], 2))
+        sxy = np.sum(np.multiply(p[:, 0], p[:, 1]))
         syy = np.sum(np.power(p[:, 1], 2))
         sxxd = np.sum(np.multiply(p[:, 0], q[:, 0]))
         syyd = np.sum(np.multiply(p[:, 1], q[:, 1]))
         sxyd = np.sum(np.multiply(p[:, 0], q[:, 1]))
         syxd = np.sum(np.multiply(q[:, 1], p[:, 0]))
-        a = np.array([[sxx + syy, 0, sx, sy],
+        if allow_affine:
+            lhs = np.array([[sxx, sxy, sx],
+                      [sxy, syy, sy],
+                      [sx, sy, n]])
+            rhs = np.array([[sxxd,sxyd],[syxd,syyd], [sxd, syd]])
+        else:
+            lhs = np.array([[sxx + syy, 0, sx, sy],
                       [0, sxx + syy, -sy, sx],
                       [sx, -sy, n, 0],
                       [sy, sx, 0, n]])
-        b = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
-        tmat = np.dot(np.linalg.pinv(a), b)
-        return np.array([[tmat[0], tmat[1], 0], [-tmat[1], tmat[0], 0], [tmat[2], tmat[3], 1]])
+            rhs = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
+        tmat = np.dot(np.linalg.pinv(lhs), rhs)
+        if allow_affine:
+            a = tmat[0,0]
+            b = tmat[1,0]
+            c = tmat[0,1]
+            d = tmat[1,1]
+            tx = tmat[2,0]
+            ty = tmat[2,1]
+            return np.array([[a, c, 0], [b, d, 0], [tx, ty, 1]])
+        else:
+            a,b,tx,ty = tuple(tmat.tolist())
+            return np.array([[a, b, 0], [-b, a, 0], [tx, ty, 1]])
+
 
     '''
     SHAPE TRANSFORMATIONS AND OPERATIONS

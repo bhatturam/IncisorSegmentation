@@ -34,5 +34,5 @@ def overlay_points_on_image(img, points):
     im = img.copy()
     points = np.uint32(np.round(points))
     for point in points:
-        cv2.circle(im, (point[0], point[1]), 5, (0, 255, 255), 1)
+        cv2.circle(im, (point[0], point[1]), 10, (0, 255, 255), 1)
     return im

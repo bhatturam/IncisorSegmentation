@@ -284,28 +284,6 @@ class PointDistributionModel:
             mode_shapes.append(self.generate(factors))
         return mode_shapes
 
-    # def fit(self, shape):
-    #     """
-    #     Refer Protocol 1 - Page 9 of
-    #      An Active Shape Model based on
-    #     Cootes, Tim, E. R. Baldock, and J. Graham.
-    #     "An introduction to active shape models."
-    #     Image processing and analysis (2000): 223-248.
-    #     :param shape: The shape to fit the model to
-    #     :return The fitted Shape and the mean squared error
-    #     """
-    #     factors = np.zeros(self._model.get_number_of_modes())
-    #     current_fit = Shape.from_collapsed_vector(self._model.generate(factors))
-    #     num_iters = 0
-    #     error = float("inf")
-    #     for num_iters in range(self._shape_fit_max_iters):
-    #         old_factors = factors.copy()
-    #         current_fit = Shape.from_collapsed_vector(self._model.generate(factors))
-    #         collapsed_shape = shape.align(current_fit).as_collapsed_vector()
-    #         error, _, factors = self._model.fit(collapsed_shape)
-    #         if np.linalg.norm(old_factors - factors) < self._shape_fit_tol:
-    #             break
-    #     return current_fit.align(shape), error, num_iters
     def fit(self, shape):
         """
         Refer Protocol 1 - Page 9 of
@@ -469,11 +447,11 @@ class AppearanceModel:
         :param pdm: A point distribution model built from the corresponding landmarks
         """
         landmarks = pdm.get_shapes()
-        all_bbox = landmarks.get_mean_shape().get_bounding_box()
+        all_bbox = landmarks.get_mean_shape().center().scale(self._template_scale).translate(landmarks.get_mean_shape().get_centroid()).get_bounding_box()
         patch_size = np.squeeze(np.uint32(np.round(np.diff(all_bbox, axis=0))))
         datalist = []
         for j in range(len(landmarks)):
-            shape_bbox = np.uint32(np.round(landmarks[j].get_bounding_box()))
+            shape_bbox = np.uint32(np.round(landmarks[j].center().scale(self._template_scale).translate(landmarks[j].get_centroid()).get_bounding_box()))
             cropped = training_images[j][shape_bbox[0, 1]:shape_bbox[1, 1], shape_bbox[0, 0]:shape_bbox[1, 0]]
             img = cv2.resize(cropped, (patch_size[0], patch_size[1]))
             datalist.append(img)
@@ -507,7 +485,7 @@ class AppearanceModel:
                 reccord[0, 1] + extent[1]), (reccord[0, 0] - extent[0]):(reccord[0, 0] + extent[0])] = 1
             return mask
 
-    def __init__(self, training_images, pdm, extent_scale):
+    def __init__(self, training_images, pdm, extent_scale,template_scale):
         """
         Builds an appearance model
         :param training_images: The set of training images
@@ -515,6 +493,7 @@ class AppearanceModel:
         :param extent_scale:  The [x,y] scaling factor to control the mask for template search
         """
         self._init_shape = pdm.get_mean_shape_projected()
+        self._template_scale = template_scale
         self._build_template(training_images, pdm)
         self._extent_scale = extent_scale
 
