@@ -9,6 +9,13 @@ def imshow2(img, width=12, height=12):
     plt.imshow(cv2.cvtColor(img, cv2.COLOR_GRAY2RGB))
 
 
+def plot_line(data):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(range(len(data)), data)
+    plt.show()
+
+
 def plot_shapes(shape_list, as_lines=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)

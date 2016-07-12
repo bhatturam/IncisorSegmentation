@@ -160,6 +160,47 @@ class Shape:
             return np.array([self._data[index] for index in neighborhood_indices])
         return np.array([])
 
+    def _get_normal_slope_vector_at_point(self, point_index, normal_neighborhood):
+        neighborhood = self._get_neighborhood(point_index, normal_neighborhood)
+        line = cv2.fitLine(np.int32(neighborhood), 2, 0, 0.01, 0.01)
+        return np.array([-line[1], line[0]])
+
+    def get_normal_coordinates_at_point_generator(self, point_index, normal_neighborhood):
+        slope_vector = self._get_normal_slope_vector_at_point(point_index, normal_neighborhood)
+        point = self.get_point(point_index).tolist()
+        delta = float("inf")
+        if slope_vector[0] != 0:
+            delta = float(slope_vector[1]) / slope_vector[0]
+
+        def normal_coordinates_generator(num_points, direction):
+            addendum = np.sign(direction)
+            result = []
+            error = -1.0
+            y = point[1]
+            x = point[0]
+            adelta = abs(delta)
+            sdelta = np.sign(delta)
+            for i in range(num_points):
+                if i > 0 or addendum > 0:
+                    result.append([x, y])
+                if (sdelta > 0 and error + adelta < 0.5) or (sdelta < 0 and error + adelta > -0.5):
+                    error += adelta
+                else:
+                    if adelta < 1:
+                        y += addendum
+                    else:
+                        x += addendum
+                    error += adelta + sdelta * 1
+                if adelta < 1:
+                    x += addendum
+                else:
+                    y += addendum
+            if addendum < 0:
+                return list(reversed(result))
+            return result
+
+        return normal_coordinates_generator
+
     def get_normal_at_point_generator(self, point_index, normal_neighborhood):
         """
         Returns a function that can be used to generate coordinates of the normal at the given point
@@ -167,9 +208,7 @@ class Shape:
         :param normal_neighborhood: The number of neighborhood points needed on EITHER SIDE
         :return: A function that accepts a parameter and generates points along the normal based on the input parameter
         """
-        neighborhood = self._get_neighborhood(point_index, normal_neighborhood)
-        line = cv2.fitLine(np.int32(neighborhood), 2, 0, 0.01, 0.01)
-        slope = np.array([-line[1], line[0]])
+        slope = self._get_normal_slope_vector_at_point(point_index, normal_neighborhood)
         unit_slope = np.squeeze(slope / np.sqrt(np.sum(slope ** 2)))
         point = self.get_point(point_index)
 
@@ -178,8 +217,7 @@ class Shape:
 
         return normal_generator
 
-
-    def get_transformation(self, other,allow_affine=False):
+    def get_transformation(self, other, allow_affine=False):
         """
         Returns the transformation matrix (homogeneous coordinates)
         to transform this shape to the other shape
@@ -205,28 +243,27 @@ class Shape:
         syxd = np.sum(np.multiply(q[:, 1], p[:, 0]))
         if allow_affine:
             lhs = np.array([[sxx, sxy, sx],
-                      [sxy, syy, sy],
-                      [sx, sy, n]])
-            rhs = np.array([[sxxd,sxyd],[syxd,syyd], [sxd, syd]])
+                            [sxy, syy, sy],
+                            [sx, sy, n]])
+            rhs = np.array([[sxxd, sxyd], [syxd, syyd], [sxd, syd]])
         else:
             lhs = np.array([[sxx + syy, 0, sx, sy],
-                      [0, sxx + syy, -sy, sx],
-                      [sx, -sy, n, 0],
-                      [sy, sx, 0, n]])
+                            [0, sxx + syy, -sy, sx],
+                            [sx, -sy, n, 0],
+                            [sy, sx, 0, n]])
             rhs = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
         tmat = np.dot(np.linalg.pinv(lhs), rhs)
         if allow_affine:
-            a = tmat[0,0]
-            b = tmat[1,0]
-            c = tmat[0,1]
-            d = tmat[1,1]
-            tx = tmat[2,0]
-            ty = tmat[2,1]
+            a = tmat[0, 0]
+            b = tmat[1, 0]
+            c = tmat[0, 1]
+            d = tmat[1, 1]
+            tx = tmat[2, 0]
+            ty = tmat[2, 1]
             return np.array([[a, c, 0], [b, d, 0], [tx, ty, 1]])
         else:
-            a,b,tx,ty = tuple(tmat.tolist())
+            a, b, tx, ty = tuple(tmat.tolist())
             return np.array([[a, b, 0], [-b, a, 0], [tx, ty, 1]])
-
 
     '''
     SHAPE TRANSFORMATIONS AND OPERATIONS

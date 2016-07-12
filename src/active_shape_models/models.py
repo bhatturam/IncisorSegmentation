@@ -357,8 +357,16 @@ class GreyModel:
             else:
                 self._point_models.append(GaussianModel(patch_data))
 
-    def _get_grey_data(self, image, coordinate_list):
-        data = np.array([image[coordinate[1], coordinate[0]] for coordinate in coordinate_list])
+    def _get_grey_data(self, image, coordinate_list, default_value=float("inf")):
+        h, w = image.shape
+        data = []
+        for coordinates in coordinate_list:
+            if 0 <= coordinates[1] < h and 0 < coordinates[0] < w:
+                data.append(image[coordinates[1], coordinates[0]])
+            else:
+                data.append(default_value)
+        data = np.array(data)
+
         if self._use_gradient:
             data = np.gradient(data)
         if self._normalize:
@@ -370,15 +378,16 @@ class GreyModel:
     def _get_point_coordinates_along_normal(self, image, shape, point_index, number_of_pixels, break_on_error=True):
         h, w = image.shape
         coordinate_list = []
-        generator = shape.get_normal_at_point_generator(point_index, self._normal_neighborhood)
-        increments = range(-number_of_pixels, number_of_pixels + 1)
-        for increment in increments:
-            coordinates = np.int32(np.round(generator(increment)))
-            if 0 <= coordinates[1] < h and 0 <= coordinates[0] < w:
+        generator = shape.get_normal_coordinates_at_point_generator(point_index, self._normal_neighborhood)
+        candidate_coordinate_list = generator(number_of_pixels, -1) + generator(number_of_pixels, 1)
+        for coordinates in candidate_coordinate_list:
+            if 0 <= coordinates[1] < h and 0 < coordinates[0] < w:
                 coordinate_list.append(coordinates)
             elif break_on_error:
                 raise ValueError("Index exceeds image dimensions")
-        return coordinate_list, generator, increments
+            else:
+                coordinate_list.append([w, h])
+        return np.uint32(np.round(coordinate_list)).tolist(), None, None
 
     def get_size(self):
         """
@@ -415,12 +424,16 @@ class GreyModel:
             min_index = 0
             select_range = range(min_index, min_index + patch_size)
             min_error, _, _ = grey_model.fit(test_patch[select_range])
+            all_errors = []
             for i in range(1 + len(test_patch) - patch_size):
                 select_range = range(i, i + patch_size)
                 error, _, _ = grey_model.fit(test_patch[select_range])
+                all_errors.append(error)
                 if error <= min_error:
                     min_index = i
                     min_error = error
+            # plot_line(all_errors)
+            # print point_index,np.mean(all_errors),np.std(all_errors),min_index,(len(test_patch)/2)-self._patch_num_pixels,all_errors[(len(test_patch)/2)-self._patch_num_pixels],min_error
             point_list.append(coordinate_list[min_index + self._patch_num_pixels])
             error_list.append(min_error)
         return Shape(np.array(point_list)), np.array(error_list)
@@ -447,11 +460,13 @@ class AppearanceModel:
         :param pdm: A point distribution model built from the corresponding landmarks
         """
         landmarks = pdm.get_shapes()
-        all_bbox = landmarks.get_mean_shape().center().scale(self._template_scale).translate(landmarks.get_mean_shape().get_centroid()).get_bounding_box()
+        all_bbox = landmarks.get_mean_shape().center().scale(self._template_scale).translate(
+            landmarks.get_mean_shape().get_centroid()).get_bounding_box()
         patch_size = np.squeeze(np.uint32(np.round(np.diff(all_bbox, axis=0))))
         datalist = []
         for j in range(len(landmarks)):
-            shape_bbox = np.uint32(np.round(landmarks[j].center().scale(self._template_scale).translate(landmarks[j].get_centroid()).get_bounding_box()))
+            shape_bbox = np.uint32(np.round(landmarks[j].center().scale(self._template_scale).translate(
+                landmarks[j].get_centroid()).get_bounding_box()))
             cropped = training_images[j][shape_bbox[0, 1]:shape_bbox[1, 1], shape_bbox[0, 0]:shape_bbox[1, 0]]
             img = cv2.resize(cropped, (patch_size[0], patch_size[1]))
             datalist.append(img)
@@ -485,7 +500,7 @@ class AppearanceModel:
                 reccord[0, 1] + extent[1]), (reccord[0, 0] - extent[0]):(reccord[0, 0] + extent[0])] = 1
             return mask
 
-    def __init__(self, training_images, pdm, extent_scale,template_scale):
+    def __init__(self, training_images, pdm, extent_scale, template_scale):
         """
         Builds an appearance model
         :param training_images: The set of training images
