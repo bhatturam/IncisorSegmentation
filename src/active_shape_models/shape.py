@@ -448,7 +448,7 @@ class ShapeList:
         """
         return ShapeList(self._shapes + other.as_list_of_shapes())
 
-    def align(self, tol=1e-7, max_iters=10000, project_to_tangent_space=True):
+    def align(self, tol=1e-7, max_iters=10000, use_transformation_matrix=True, project_to_tangent_space=True):
         """
         Performs Generalized Procrustes Analysis to align a list of shapes
         to a common coordinate system. Implementation based on Appendix A of
@@ -463,6 +463,8 @@ class ShapeList:
         permitted (Default: 10000)
         :return: A new shape list with aligned shapes
         """
+        if not use_transformation_matrix:
+            project_to_tangent_space = False
         if not project_to_tangent_space:
             normalize_over_all_elements = False
         else:
@@ -471,7 +473,7 @@ class ShapeList:
         mean_shape = aligned_shapes[0].normalize(normalize_over_all_elements)
         for num_iters in range(max_iters):
             for i in range(len(aligned_shapes)):
-                aligned_shapes[i] = aligned_shapes[i].align(mean_shape)
+                aligned_shapes[i] = aligned_shapes[i].align(mean_shape, use_transformation_matrix)
                 if project_to_tangent_space:
                     aligned_shapes[i].project_to_tangent_space(mean_shape)
             previous_mean_shape = mean_shape

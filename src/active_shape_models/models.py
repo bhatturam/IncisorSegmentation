@@ -176,6 +176,7 @@ class PointDistributionModel:
     """
 
     def __init__(self, shape_list, pca_variance_captured=0.9, pca_number_of_components=None,
+                 use_transformation_matrix=True,
                  project_to_tangent_space=True, gpa_tol=1e-7,
                  gpa_max_iters=10000, shape_fit_tol=1e-7,
                  shape_fit_max_iters=10000):
@@ -193,8 +194,12 @@ class PointDistributionModel:
         permitted for gpa (Default: 10000)
         """
         self._shapes = shape_list
+        self._use_transformation_matrix = use_transformation_matrix
         self._tangent_space_projection = project_to_tangent_space
-        self._aligned_shapes = self._shapes.align(gpa_tol, gpa_max_iters, self._tangent_space_projection)
+        if not use_transformation_matrix:
+            self._tangent_space_projection = False
+        self._aligned_shapes = self._shapes.align(gpa_tol, gpa_max_iters, self._use_transformation_matrix,
+                                                  self._tangent_space_projection)
         self._shape_fit_tol = shape_fit_tol
         self._shape_fit_max_iters = shape_fit_max_iters
         self._model = ModedPCAModel(self._aligned_shapes.as_collapsed_vector(), pca_variance_captured,
@@ -284,7 +289,20 @@ class PointDistributionModel:
             mode_shapes.append(self.generate(factors))
         return mode_shapes
 
-    def fit(self, shape):
+    def _fitSimple(self, shape):
+        factors = np.zeros(self._model.get_number_of_modes())
+        current_fit = self.generate(factors).align(shape)
+        for num_iters in range(self._shape_fit_max_iters):
+            collapsed_shape = shape.align(current_fit).as_collapsed_vector()
+            old_factors = factors.copy()
+            _, _, factors = self._model.fit(collapsed_shape)
+            current_fit = self.generate(factors).align(shape)
+            if np.linalg.norm(old_factors - factors) < self._shape_fit_tol:
+                break
+        error = np.sum(np.sum(np.abs(current_fit.as_numpy_matrix() - shape.as_numpy_matrix()), axis=1))
+        return current_fit, error, num_iters
+
+    def _fitUsingTransformationMatrix(self, shape):
         """
         Refer Protocol 1 - Page 9 of
          An Active Shape Model based on
@@ -313,6 +331,11 @@ class PointDistributionModel:
         final_shape = current_fit.transform(hmat)
         error = np.sum(np.sum(np.abs(final_shape.as_numpy_matrix() - shape.as_numpy_matrix()), axis=1))
         return final_shape, error, num_iters
+
+    def fit(self, shape):
+        if self._use_transformation_matrix:
+            return self._fitUsingTransformationMatrix(shape)
+        return self._fitSimple(shape)
 
 
 class GreyModel:
@@ -568,7 +591,7 @@ class ActiveShapeModel:
         """
         return self._pdm.get_mean_shape_projected()
 
-    def fit(self, test_image, tol=0.5, max_iters=10000, initial_shape=None):
+    def fit(self, test_image, tol=0.1, max_iters=10000, initial_shape=None):
         """
         Fits the shape model to the test image to find the shape
         :param test_image: The test image in the form of a numpy matrix
