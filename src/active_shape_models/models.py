@@ -176,6 +176,7 @@ class PointDistributionModel:
     """
 
     def __init__(self, shape_list, pca_variance_captured=0.9, pca_number_of_components=None,
+                 use_transformation_matrix=True,
                  project_to_tangent_space=True, gpa_tol=1e-7,
                  gpa_max_iters=10000, shape_fit_tol=1e-7,
                  shape_fit_max_iters=10000):
@@ -193,8 +194,12 @@ class PointDistributionModel:
         permitted for gpa (Default: 10000)
         """
         self._shapes = shape_list
+        self._use_transformation_matrix = use_transformation_matrix
         self._tangent_space_projection = project_to_tangent_space
-        self._aligned_shapes = self._shapes.align(gpa_tol, gpa_max_iters, self._tangent_space_projection)
+        if not use_transformation_matrix:
+            self._tangent_space_projection = False
+        self._aligned_shapes = self._shapes.align(gpa_tol, gpa_max_iters, self._use_transformation_matrix,
+                                                  self._tangent_space_projection)
         self._shape_fit_tol = shape_fit_tol
         self._shape_fit_max_iters = shape_fit_max_iters
         self._model = ModedPCAModel(self._aligned_shapes.as_collapsed_vector(), pca_variance_captured,
@@ -284,7 +289,20 @@ class PointDistributionModel:
             mode_shapes.append(self.generate(factors))
         return mode_shapes
 
-    def fit(self, shape):
+    def _fitSimple(self, shape):
+        factors = np.zeros(self._model.get_number_of_modes())
+        current_fit = self.generate(factors).align(shape)
+        for num_iters in range(self._shape_fit_max_iters):
+            collapsed_shape = shape.align(current_fit).as_collapsed_vector()
+            old_factors = factors.copy()
+            _, _, factors = self._model.fit(collapsed_shape)
+            current_fit = self.generate(factors).align(shape)
+            if np.linalg.norm(old_factors - factors) < self._shape_fit_tol:
+                break
+        error = np.sum(np.sum(np.abs(current_fit.as_numpy_matrix() - shape.as_numpy_matrix()), axis=1))
+        return current_fit, error, num_iters
+
+    def _fitUsingTransformationMatrix(self, shape):
         """
         Refer Protocol 1 - Page 9 of
          An Active Shape Model based on
@@ -313,6 +331,11 @@ class PointDistributionModel:
         final_shape = current_fit.transform(hmat)
         error = np.sum(np.sum(np.abs(final_shape.as_numpy_matrix() - shape.as_numpy_matrix()), axis=1))
         return final_shape, error, num_iters
+
+    def fit(self, shape):
+        if self._use_transformation_matrix:
+            return self._fitUsingTransformationMatrix(shape)
+        return self._fitSimple(shape)
 
 
 class GreyModel:
@@ -357,8 +380,16 @@ class GreyModel:
             else:
                 self._point_models.append(GaussianModel(patch_data))
 
-    def _get_grey_data(self, image, coordinate_list):
-        data = np.array([image[coordinate[1], coordinate[0]] for coordinate in coordinate_list])
+    def _get_grey_data(self, image, coordinate_list, default_value=float("inf")):
+        h, w = image.shape
+        data = []
+        for coordinates in coordinate_list:
+            if 0 <= coordinates[1] < h and 0 < coordinates[0] < w:
+                data.append(image[coordinates[1], coordinates[0]])
+            else:
+                data.append(default_value)
+        data = np.array(data)
+
         if self._use_gradient:
             data = np.gradient(data)
         if self._normalize:
@@ -370,15 +401,16 @@ class GreyModel:
     def _get_point_coordinates_along_normal(self, image, shape, point_index, number_of_pixels, break_on_error=True):
         h, w = image.shape
         coordinate_list = []
-        generator = shape.get_normal_at_point_generator(point_index, self._normal_neighborhood)
-        increments = range(-number_of_pixels, number_of_pixels + 1)
-        for increment in increments:
-            coordinates = np.int32(np.round(generator(increment)))
-            if 0 <= coordinates[1] < h and 0 <= coordinates[0] < w:
+        generator = shape.get_normal_coordinates_at_point_generator(point_index, self._normal_neighborhood)
+        candidate_coordinate_list = generator(number_of_pixels, -1) + generator(number_of_pixels, 1)
+        for coordinates in candidate_coordinate_list:
+            if 0 <= coordinates[1] < h and 0 < coordinates[0] < w:
                 coordinate_list.append(coordinates)
             elif break_on_error:
                 raise ValueError("Index exceeds image dimensions")
-        return coordinate_list, generator, increments
+            else:
+                coordinate_list.append([w, h])
+        return np.uint32(np.round(coordinate_list)).tolist(), None, None
 
     def get_size(self):
         """
@@ -415,12 +447,16 @@ class GreyModel:
             min_index = 0
             select_range = range(min_index, min_index + patch_size)
             min_error, _, _ = grey_model.fit(test_patch[select_range])
+            all_errors = []
             for i in range(1 + len(test_patch) - patch_size):
                 select_range = range(i, i + patch_size)
                 error, _, _ = grey_model.fit(test_patch[select_range])
+                all_errors.append(error)
                 if error <= min_error:
                     min_index = i
                     min_error = error
+            # plot_line(all_errors)
+            # print point_index,np.mean(all_errors),np.std(all_errors),min_index,(len(test_patch)/2)-self._patch_num_pixels,all_errors[(len(test_patch)/2)-self._patch_num_pixels],min_error
             point_list.append(coordinate_list[min_index + self._patch_num_pixels])
             error_list.append(min_error)
         return Shape(np.array(point_list)), np.array(error_list)
@@ -447,11 +483,13 @@ class AppearanceModel:
         :param pdm: A point distribution model built from the corresponding landmarks
         """
         landmarks = pdm.get_shapes()
-        all_bbox = landmarks.get_mean_shape().center().scale(self._template_scale).translate(landmarks.get_mean_shape().get_centroid()).get_bounding_box()
+        all_bbox = landmarks.get_mean_shape().center().scale(self._template_scale).translate(
+            landmarks.get_mean_shape().get_centroid()).get_bounding_box()
         patch_size = np.squeeze(np.uint32(np.round(np.diff(all_bbox, axis=0))))
         datalist = []
         for j in range(len(landmarks)):
-            shape_bbox = np.uint32(np.round(landmarks[j].center().scale(self._template_scale).translate(landmarks[j].get_centroid()).get_bounding_box()))
+            shape_bbox = np.uint32(np.round(landmarks[j].center().scale(self._template_scale).translate(
+                landmarks[j].get_centroid()).get_bounding_box()))
             cropped = training_images[j][shape_bbox[0, 1]:shape_bbox[1, 1], shape_bbox[0, 0]:shape_bbox[1, 0]]
             img = cv2.resize(cropped, (patch_size[0], patch_size[1]))
             datalist.append(img)
@@ -485,7 +523,7 @@ class AppearanceModel:
                 reccord[0, 1] + extent[1]), (reccord[0, 0] - extent[0]):(reccord[0, 0] + extent[0])] = 1
             return mask
 
-    def __init__(self, training_images, pdm, extent_scale,template_scale):
+    def __init__(self, training_images, pdm, extent_scale, template_scale):
         """
         Builds an appearance model
         :param training_images: The set of training images
@@ -553,7 +591,7 @@ class ActiveShapeModel:
         """
         return self._pdm.get_mean_shape_projected()
 
-    def fit(self, test_image, tol=0.5, max_iters=10000, initial_shape=None):
+    def fit(self, test_image, tol=0.1, max_iters=10000, initial_shape=None):
         """
         Fits the shape model to the test image to find the shape
         :param test_image: The test image in the form of a numpy matrix
