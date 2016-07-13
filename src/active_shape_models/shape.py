@@ -437,7 +437,7 @@ class ShapeList:
 
 class LineGenerator:
     def __init__(self, point, slope_vector, use_bresenhams_algorithm=True):
-        self._point = point
+        self._point = np.array(point)
         self._slope_vector = slope_vector
         self._use_bresenham = use_bresenhams_algorithm
 
@@ -452,9 +452,9 @@ class LineGenerator:
         x = self._point[0]
         adelta = abs(delta)
         sdelta = np.sign(delta)
-        for i in range(num_points):
+        for i in range(num_points+1):
             if i > 0:
-                result.append([x, y])
+                result.append([int(round(x)), int(round(y))])
             if (sdelta > 0 and error + adelta < 0.5) or (sdelta < 0 and error + adelta > -0.5):
                 error += adelta
             else:
@@ -473,15 +473,18 @@ class LineGenerator:
 
     def _generate_simple(self, num_points, direction):
         unit_slope = np.squeeze(self._slope_vector / np.sqrt(np.sum(self._slope_vector ** 2)))
-        return [(np.array(self._point) + (direction * unit_slope * (increment + 1))).tolist() for increment in
-                range(num_points)]
+        result = []
+        for increment in range(num_points):
+            new_point = (self._point + (direction * unit_slope * (increment + 1)))
+            result.append([int(round(new_point[0])), int(round(new_point[1]))])
+        return result
 
     def generate_one_sided(self, num_points, direction):
         if self._use_bresenham:
             points = self._generate_bresenham(num_points, direction)
         else:
             points = self._generate_simple(num_points, direction)
-        return points + [self._point]
+        return points + [[int(round(self._point[0])),int(round(self._point[1]))]]
 
     def generate_two_sided(self, num_points):
         if self._use_bresenham:
@@ -490,4 +493,4 @@ class LineGenerator:
         else:
             points_left = self._generate_simple(num_points, -1)
             points_right = self._generate_simple(num_points, 1)
-        return points_left + [self._point] + points_right
+        return points_left + [[int(round(self._point[0])),int(round(self._point[1]))]] + points_right
