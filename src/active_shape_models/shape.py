@@ -160,62 +160,12 @@ class Shape:
             return np.array([self._data[index] for index in neighborhood_indices])
         return np.array([])
 
-    def _get_normal_slope_vector_at_point(self, point_index, normal_neighborhood):
+    def get_slope_vectors_at_point(self, point_index, normal_neighborhood):
         neighborhood = self._get_neighborhood(point_index, normal_neighborhood)
         line = cv2.fitLine(np.int32(neighborhood), 2, 0, 0.01, 0.01)
-        return np.array([-line[1], line[0]])
-
-    def get_normal_coordinates_at_point_generator(self, point_index, normal_neighborhood):
-        slope_vector = self._get_normal_slope_vector_at_point(point_index, normal_neighborhood)
-        point = self.get_point(point_index).tolist()
-        delta = float("inf")
-        if slope_vector[0] != 0:
-            delta = float(slope_vector[1]) / slope_vector[0]
-
-        def normal_coordinates_generator(num_points, direction):
-            addendum = np.sign(direction)
-            result = []
-            error = -1.0
-            y = point[1]
-            x = point[0]
-            adelta = abs(delta)
-            sdelta = np.sign(delta)
-            for i in range(num_points):
-                if i > 0 or addendum > 0:
-                    result.append([x, y])
-                if (sdelta > 0 and error + adelta < 0.5) or (sdelta < 0 and error + adelta > -0.5):
-                    error += adelta
-                else:
-                    if adelta < 1:
-                        y += addendum
-                    else:
-                        x += addendum
-                    error += adelta + sdelta * 1
-                if adelta < 1:
-                    x += addendum
-                else:
-                    y += addendum
-            if addendum < 0:
-                return list(reversed(result))
-            return result
-
-        return normal_coordinates_generator
-
-    def get_normal_at_point_generator(self, point_index, normal_neighborhood):
-        """
-        Returns a function that can be used to generate coordinates of the normal at the given point
-        :param point_index: The index of the query point in the shape
-        :param normal_neighborhood: The number of neighborhood points needed on EITHER SIDE
-        :return: A function that accepts a parameter and generates points along the normal based on the input parameter
-        """
-        slope = self._get_normal_slope_vector_at_point(point_index, normal_neighborhood)
-        unit_slope = np.squeeze(slope / np.sqrt(np.sum(slope ** 2)))
-        point = self.get_point(point_index)
-
-        def normal_generator(increment):
-            return point + increment * unit_slope
-
-        return normal_generator
+        tangent_slope_vector = [line[0], line[1]]
+        normal_slope_vector = [-tangent_slope_vector[1], tangent_slope_vector[0]]
+        return np.array(tangent_slope_vector), np.array(normal_slope_vector)
 
     def get_transformation(self, other, allow_affine=False):
         """
@@ -483,3 +433,61 @@ class ShapeList:
             if np.linalg.norm(mean_shape.as_numpy_matrix() - previous_mean_shape.as_numpy_matrix()) < tol:
                 break
         return ShapeList(aligned_shapes)
+
+
+class LineGenerator:
+    def __init__(self, point, slope_vector, use_bresenhams_algorithm=True):
+        self._point = point
+        self._slope_vector = slope_vector
+        self._use_bresenham = use_bresenhams_algorithm
+
+    def _generate_bresenham(self, num_points, direction):
+        delta = float("inf")
+        if self._slope_vector[0] != 0:
+            delta = float(self._slope_vector[1]) / self._slope_vector[0]
+        addendum = np.sign(direction)
+        result = []
+        error = -1.0
+        y = self._point[1]
+        x = self._point[0]
+        adelta = abs(delta)
+        sdelta = np.sign(delta)
+        for i in range(num_points):
+            if i > 0:
+                result.append([x, y])
+            if (sdelta > 0 and error + adelta < 0.5) or (sdelta < 0 and error + adelta > -0.5):
+                error += adelta
+            else:
+                if adelta < 1:
+                    y += addendum
+                else:
+                    x += addendum
+                error += adelta + sdelta * 1
+            if adelta < 1:
+                x += addendum
+            else:
+                y += addendum
+        if addendum < 0:
+            return list(reversed(result))
+        return result
+
+    def _generate_simple(self, num_points, direction):
+        unit_slope = np.squeeze(self._slope_vector / np.sqrt(np.sum(self._slope_vector ** 2)))
+        return [(np.array(self._point) + (direction * unit_slope * (increment + 1))).tolist() for increment in
+                range(num_points)]
+
+    def generate_one_sided(self, num_points, direction):
+        if self._use_bresenham:
+            points = self._generate_bresenham(num_points, direction)
+        else:
+            points = self._generate_simple(num_points, direction)
+        return points + [self._point]
+
+    def generate_two_sided(self, num_points):
+        if self._use_bresenham:
+            points_left = self._generate_bresenham(num_points, -1)
+            points_right = self._generate_bresenham(num_points, 1)
+        else:
+            points_left = self._generate_simple(num_points, -1)
+            points_right = self._generate_simple(num_points, 1)
+        return points_left + [self._point] + points_right
