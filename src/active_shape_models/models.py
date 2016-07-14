@@ -550,12 +550,12 @@ class AppearanceModel:
         :return: Shape corressponding to the match
         """
         h, w = self._template.shape
-        ret = cv2.matchTemplate(test_image, self._template, method=cv2.TM_CCORR_NORMED)
+        ret = cv2.matchTemplate(test_image, self._template, method=3)
         mask = self._build_search_mask(test_image.shape, ret.shape)
         if ret.shape == test_image.shape:
             _, _, _, max_loc = cv2.minMaxLoc(ret, mask=mask)
         else:
-            _, _, _, max_loc = cv2.minMaxLoc(ret * mask)
+            _, _, _, max_loc = cv2.minMaxLoc(np.multiply(ret,mask))
         translation = max_loc + np.round([w / 2.0, h / 2.0])
         return self._init_shape.center().translate(translation)
 
