@@ -357,11 +357,11 @@ class GreyModel:
     """
 
     def __init__(self, training_images, training_shape_list, patch_num_pixels_length, patch_num_pixels_width,
-                 search_num_pixels, use_gradient=False, use_laplacian=False, kernel_size=-1, normalize_patch=False,
-                 use_moded_pca_model=False, mpca_variance_captured=0.9,
-                 normal_point_neighborhood=2):
+                 search_num_pixels, use_gradient=False, use_template_match=False,use_laplacian=False, kernel_size=-1, normalize_patch=False, use_moded_pca_model=False, mpca_variance_captured=0.9,
+                 normal_point_neighborhood=2,damping_factor=0.5):
         self._point_models = []
         self._using_pca_model = use_moded_pca_model
+        self._use_template_match = use_template_match
         self._search_num_pixels = search_num_pixels
         self._patch_num_pixels_length = patch_num_pixels_length
         self._patch_num_pixels_width = patch_num_pixels_width
@@ -370,19 +370,28 @@ class GreyModel:
         self._kernel_size = kernel_size
         self._normalize = normalize_patch
         self._normal_neighborhood = normal_point_neighborhood
+        self._update_damping_factor = damping_factor
         for i in range(training_shape_list[0].get_size()):
             patch_data_list = []
             for j in range(len(training_images)):
                 patch_coordinate_list = self._get_patch_pixel_indices(training_shape_list[j], i,
                                                                       self._patch_num_pixels_length,
                                                                       self._patch_num_pixels_width)
-                levels = self._get_patch_data(training_images[j], patch_coordinate_list).flatten()
-                patch_data_list.append(levels)
-            patch_data = np.array(patch_data_list)
-            if self._using_pca_model:
-                self._point_models.append(ModedPCAModel(patch_data, pca_variance_captured=mpca_variance_captured))
+                patch = self._get_patch_data(training_images[j], patch_coordinate_list)
+                levels = patch.flatten()
+                if not self._use_template_match:
+                    patch_data_list.append(levels)
+                else:
+                    patch_data_list.append(patch)
+            if not self._use_template_match:
+                patch_data = np.array(patch_data_list)
+                if self._using_pca_model:
+                    self._point_models.append(ModedPCAModel(patch_data, pca_variance_captured=mpca_variance_captured))
+                else:
+                    self._point_models.append(GaussianModel(patch_data))
             else:
-                self._point_models.append(GaussianModel(patch_data))
+                np.mean(np.array(patch_data_list),axis=0)
+                self._point_models.append(patch_data)
 
     def _get_patch_pixel_indices(self, shape, point_index, number_of_pixels_length, number_of_pixels_width):
         coordinate_list = []
@@ -393,7 +402,7 @@ class GreyModel:
         normal_coordinate_list = normal_coordinates_generator.generate_two_sided(number_of_pixels_length)
         for coordinates in normal_coordinate_list:
             tangent_coordinates_generator = LineGenerator(coordinates, tangent_slope_vector)
-            tangent_coordinate_list = tangent_coordinates_generator.generate_two_sided(number_of_pixels_width)
+            tangent_coordinate_list=tangent_coordinates_generator.generate_two_sided(number_of_pixels_width)
             coordinate_list.append(tangent_coordinate_list)
         return coordinate_list
 
@@ -414,11 +423,11 @@ class GreyModel:
         if self._use_laplacian:
             data = cv2.Laplacian(data, 6, ksize=np.abs(self._kernel_size))
         elif self._use_gradient:
-            sobelx = cv2.Sobel(data, 6, 1, 0, ksize=self._kernel_size)
-            sobely = cv2.Sobel(data, 6, 0, 1, ksize=self._kernel_size)
-            data = np.sqrt(sobelx ** 2 + sobely ** 2)
+            sobelx = cv2.Sobel(data,6,1,0,ksize=self._kernel_size)
+            sobely = cv2.Sobel(data,6,0,1,ksize=self._kernel_size)
+            data = np.sqrt(sobelx**2 + sobely**2)
         if self._normalize:
-            data = cv2.normalize(data, data, norm_type=2)
+            data = cv2.normalize(data,data, norm_type=2)
         return data
 
     def get_size(self):
@@ -435,6 +444,37 @@ class GreyModel:
         """
         return self._point_models[point_index]
 
+    def _search_using_model(self,grey_model,full_test_patch):
+        all_errors = []
+        min_error = float("inf")
+        min_index = -1
+        for i in range(2*self._search_num_pixels -(2*self._patch_num_pixels_length)):
+            select_range = range(i, i + 2*self._patch_num_pixels_length+1)
+            current_test_patch = full_test_patch[select_range,:]
+            error, _, _ = grey_model.fit(current_test_patch.flatten())
+            all_errors.append(error)
+            if error < min_error:
+                min_index = i
+                min_error = error
+        return min_index,min_error,all_errors
+
+    def _search_using_template_match(self,template,test_image):
+        ret = cv2.matchTemplate(test_image, template, method=3)
+        hh,ww = test_image.shape
+        h, w = template.shape
+        if ret.shape == test_image.shape:
+            mask = np.uint8(np.zeros(test_image.shape))
+            mask[:,self._patch_num_pixels_width] = np.ones(2*self._patch_num_pixels_length+1)
+            _, maxVal, _, max_loc = cv2.minMaxLoc(ret, mask=mask)
+            all_errors = np.squeeze(ret[:,self._patch_num_pixels_width])
+            all_errors = all_err[0:(hh - h + 1)].tolist()
+        else:
+            mask = np.ones(2*self._patch_num_pixels_length+1)
+            _, _, _, max_loc = cv2.minMaxLoc(np.multiply(ret,mask))
+            all_errors = np.squeeze(ret).tolist()
+        translation = max_loc + np.round([w / 2.0, h / 2.0])
+        return translation[1],maxVal,all_errors
+
     def search(self, test_image, initial_shape):
         """
         Searches for the best positions of the shape points in the test image
@@ -450,22 +490,18 @@ class GreyModel:
                                                                   self._search_num_pixels,
                                                                   self._patch_num_pixels_width)
             full_test_patch = self._get_patch_data(test_image, patch_coordinate_list)
-            min_index = -1
-            min_error = float("inf")
-            all_errors = []
-            for i in range(2 * self._search_num_pixels - (2 * self._patch_num_pixels_length)):
-                select_range = range(i, i + 2 * self._patch_num_pixels_length + 1)
-                current_test_patch = full_test_patch[select_range, :]
-                error, _, _ = grey_model.fit(current_test_patch.flatten())
-                all_errors.append(error)
-                if error < min_error:
-                    min_index = i
-                    min_error = error
+            if not self._use_template_match:
+                min_index,min_error,all_errors = self._search_using_model(grey_model,full_test_patch)
+            else:
+                min_index,min_error,all_errors = self._search_using_template_match(grey_model,full_test_patch)
+            #plot_line(all_errors)
+            #print point_index,np.mean(all_errors),np.std(all_errors),min_index,self._search_num_pixels-self._patch_num_pixels_length,all_errors[self._search_num_pixels-self._patch_num_pixels_length],min_error
             if min_index == -1:
                 point_list.append(initial_shape.get_point(point_index))
             else:
-                point_list.append(
-                    patch_coordinate_list[min_index + self._patch_num_pixels_length][self._patch_num_pixels_width])
+                delta = patch_coordinate_list[min_index+self._patch_num_pixels_length][self._patch_num_pixels_width]-initial_shape.get_point(point_index)
+                delta = self._update_damping_factor*delta
+                point_list.append(np.uint32(np.round(initial_shape.get_point(point_index)+delta)).tolist())
             error_list.append(min_error)
         return Shape(np.array(point_list)), np.array(error_list)
 
