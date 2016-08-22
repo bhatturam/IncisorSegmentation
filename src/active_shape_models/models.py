@@ -332,9 +332,9 @@ class PointDistributionModel:
         error = np.sum(np.sum(np.abs(final_shape.as_numpy_matrix() - shape.as_numpy_matrix()), axis=1))
         return final_shape, error, num_iters
 
-    def fit(self, shape):
+    def fit(self, shape,weights=None):
         if self._use_transformation_matrix:
-            return self._fitUsingTransformationMatrix(shape)
+            return self._fitUsingTransformationMatrix(shape,weights)
         return self._fitSimple(shape)
 
 
@@ -605,14 +605,12 @@ class ActiveShapeModel:
     Attributes:
     _pdm The underlying point distribution model (PointDistributionModel)
     _gm The underlying grey model (ModedPCAModel or GaussianModel)
-    _am The underlying appearance model
     Authors: David Torrejon and Bharath Venkatesh
     """
 
-    def __init__(self, point_distribution_model, grey_model, appearance_model=None):
+    def __init__(self, point_distribution_model, grey_model):
         self._pdm = point_distribution_model
         self._gm = grey_model
-        self._am = appearance_model
 
     def get_pdm(self):
         """
@@ -645,10 +643,7 @@ class ActiveShapeModel:
         :return: The final Shape, the fit error and the number of iterations performed
         """
         if initial_shape is None:
-            if self._am is None:
-                current_shape = self.get_default_initial_shape()
-            else:
-                current_shape = self._am.fit(test_image)
+            current_shape = self.get_default_initial_shape()
         else:
             current_shape = initial_shape.round()
         num_iter = 0

@@ -16,6 +16,14 @@ def plot_line(data):
     plt.show()
 
 
+def plot_many_lines(datalines):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    for data in datalines:
+        ax.plot(range(len(data)), data)
+    plt.show()
+
+
 def plot_shapes(shape_list, as_lines=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -37,9 +45,9 @@ def overlay_shapes_on_image(img, shape_list):
     return im
 
 
-def overlay_points_on_image(img, points):
+def overlay_points_on_image(img, points,width=10,color = (0, 255, 255),something_that_was_one=1):
     im = img.copy()
     points = np.uint32(np.round(points))
     for point in points:
-        cv2.circle(im, (point[0], point[1]), 10, (0, 255, 255), 1)
+        cv2.circle(im, (point[0], point[1]), width, color, something_that_was_one)
     return im

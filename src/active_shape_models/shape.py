@@ -59,6 +59,13 @@ class Shape:
         for i in range(len(x_list)):
             points.append([x_list[i], y_list[i]])
         return Shape(np.array(points))
+    
+    @classmethod
+    def from_contour(cls,contour):
+        points = []        
+        for wierdness in contour:
+            points.append(wierdness[0])
+        return Shape(np.array(points))
 
     '''
     VIEWS
@@ -145,6 +152,9 @@ class Shape:
         :return: A shape object
         """
         return [self.get_point(point_index) for point_index in point_indices]
+        
+    def get_convex_hull(self):
+        return Shape.from_contour(cv2.convexHull(self.as_contour(),returnPoints=True))
 
     def _get_neighborhood(self, point_index, num_neighbors):
         """
@@ -167,7 +177,7 @@ class Shape:
         normal_slope_vector = [-tangent_slope_vector[1], tangent_slope_vector[0]]
         return np.array(tangent_slope_vector), np.array(normal_slope_vector)
 
-    def get_transformation(self, other, allow_affine=False):
+    def get_transformation(self, other, allow_affine=False, w=None):
         """
         Returns the transformation matrix (homogeneous coordinates)
         to transform this shape to the other shape
@@ -177,43 +187,61 @@ class Shape:
         :param other: The other Shape
         :return: The 3x3 transformation matrix
         """
-        n = self.get_size()
-        p = self.as_numpy_matrix()
-        q = other.as_numpy_matrix()
-        sx = np.sum(p[:, 0])
-        sy = np.sum(p[:, 1])
-        sxd = np.sum(q[:, 0])
-        syd = np.sum(q[:, 1])
-        sxx = np.sum(np.power(p[:, 0], 2))
-        sxy = np.sum(np.multiply(p[:, 0], p[:, 1]))
-        syy = np.sum(np.power(p[:, 1], 2))
-        sxxd = np.sum(np.multiply(p[:, 0], q[:, 0]))
-        syyd = np.sum(np.multiply(p[:, 1], q[:, 1]))
-        sxyd = np.sum(np.multiply(p[:, 0], q[:, 1]))
-        syxd = np.sum(np.multiply(q[:, 1], p[:, 0]))
-        if allow_affine:
-            lhs = np.array([[sxx, sxy, sx],
-                            [sxy, syy, sy],
-                            [sx, sy, n]])
-            rhs = np.array([[sxxd, sxyd], [syxd, syyd], [sxd, syd]])
+        if w is None:
+            n = self.get_size()
+            p = self.as_numpy_matrix()
+            q = other.as_numpy_matrix()
+            sx = np.sum(p[:, 0])
+            sy = np.sum(p[:, 1])
+            sxd = np.sum(q[:, 0])
+            syd = np.sum(q[:, 1])
+            sxx = np.sum(np.power(p[:, 0], 2))
+            sxy = np.sum(np.multiply(p[:, 0], p[:, 1]))
+            syy = np.sum(np.power(p[:, 1], 2))
+            sxxd = np.sum(np.multiply(p[:, 0], q[:, 0]))
+            syyd = np.sum(np.multiply(p[:, 1], q[:, 1]))
+            sxyd = np.sum(np.multiply(p[:, 0], q[:, 1]))
+            syxd = np.sum(np.multiply(q[:, 1], p[:, 0]))
+            if allow_affine:
+                lhs = np.array([[sxx, sxy, sx],
+                                [sxy, syy, sy],
+                                [sx, sy, n]])
+                rhs = np.array([[sxxd, sxyd], [syxd, syyd], [sxd, syd]])
+            else:
+                lhs = np.array([[sxx + syy, 0, sx, sy],
+                                [0, sxx + syy, -sy, sx],
+                                [sx, -sy, n, 0],
+                                [sy, sx, 0, n]])
+                rhs = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
+            tmat = np.dot(np.linalg.pinv(lhs), rhs)
+            if allow_affine:
+                a = tmat[0, 0]
+                b = tmat[1, 0]
+                c = tmat[0, 1]
+                d = tmat[1, 1]
+                tx = tmat[2, 0]
+                ty = tmat[2, 1]
+                return np.array([[a, c, 0], [b, d, 0], [tx, ty, 1]])
+            else:
+                a, b, tx, ty = tuple(tmat.tolist())
+                return np.array([[a, b, 0], [-b, a, 0], [tx, ty, 1]])
         else:
-            lhs = np.array([[sxx + syy, 0, sx, sy],
-                            [0, sxx + syy, -sy, sx],
-                            [sx, -sy, n, 0],
-                            [sy, sx, 0, n]])
-            rhs = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
-        tmat = np.dot(np.linalg.pinv(lhs), rhs)
-        if allow_affine:
-            a = tmat[0, 0]
-            b = tmat[1, 0]
-            c = tmat[0, 1]
-            d = tmat[1, 1]
-            tx = tmat[2, 0]
-            ty = tmat[2, 1]
-            return np.array([[a, c, 0], [b, d, 0], [tx, ty, 1]])
-        else:
-            a, b, tx, ty = tuple(tmat.tolist())
-            return np.array([[a, b, 0], [-b, a, 0], [tx, ty, 1]])
+            W = np.sum(w)    
+            x1 = s1[:,0]
+            y1 = s1[:,1]
+            x2 = s2[:,0]
+            y2 = s2[:,1]
+            X1 = np.dot(w,x1)
+            X2 = np.dot(w,x2)
+            Y1 = np.dot(w,y1)
+            Y2 = np.dot(w,y2)
+            Z = np.dot(w,np.power(x2)+np.power(y2))    
+            C1 = np.dot(w,x1*x2+y1*y2)
+            C2 = np.dot(w,y1*x2-x1*y2)
+            A = np.array([[X2,-Y2,W,0],[Y2,X2,0,W],[Z,0,X2,Y2],[0,Z,-Y2,X2]])
+            B = np.array([X1,Y1,C1,C2])
+            R=numpy.linalg.solve(A, B)
+            return np.array([[R[0],-R[1]],[R[1],R[0]]]),np.array([R[2],R[3]])
 
     '''
     SHAPE TRANSFORMATIONS AND OPERATIONS
@@ -275,7 +303,7 @@ class Shape:
         self_data = np.concatenate((self.as_numpy_matrix(), np.ones((self.get_size(), 1), dtype=float)), axis=1)
         return Shape(np.dot(self_data, hmat)[:, 0:2])
 
-    def align(self, other, use_transformation_matrix=True):
+    def align(self, other, use_transformation_matrix=True,weights=None):
         """
         Aligns the current shape
         to the other shape  by
@@ -287,7 +315,7 @@ class Shape:
         :return: A shape aligned to other
         """
         if use_transformation_matrix:
-            return self.transform(self.get_transformation(other))
+            return self.transform(self.get_transformation(other,weights))
         translation = other.get_centroid() - self.get_centroid()
         other_data = other.as_numpy_matrix() - other.get_centroid()
         self_data = self._data - self.get_centroid()
@@ -433,6 +461,7 @@ class ShapeList:
             if np.linalg.norm(mean_shape.as_numpy_matrix() - previous_mean_shape.as_numpy_matrix()) < tol:
                 break
         return ShapeList(aligned_shapes)
+        
 
 
 class LineGenerator:
