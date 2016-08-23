@@ -411,6 +411,7 @@ class LeaveOneOutSplitter:
     def get_training_set_size(self):
         return len(self._training_idx)
 
+
     def get_test_index(self):
         return self._test_idx
 

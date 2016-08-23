@@ -95,6 +95,13 @@ class PCAModel:
         :return:  The vector of the eigenvalues
         """
         return self._lambdas
+    
+    def get_varfrac(self):
+        """
+        Returns the fraction of variance captured by each PC
+        :return:  The vector of the variance captured by each component
+        """
+        return np.cumsum(self._lambdas / np.sum(self._lambdas))
 
     def get_k_cutoff(self, variance_captured=0.9):
         """
@@ -105,8 +112,7 @@ class PCAModel:
 
         :return: The number of components
         """
-        vf = np.cumsum(self._lambdas / np.sum(self._lambdas))
-        return bisect_left(vf, variance_captured)
+        return bisect_left(self.get_varfrac(), variance_captured)
 
     def project(self, x=None, k=0):
         """
