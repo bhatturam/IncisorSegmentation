@@ -179,7 +179,7 @@ class PointDistributionModel:
                  use_transformation_matrix=True,
                  project_to_tangent_space=True, gpa_tol=1e-7,
                  gpa_max_iters=10000, shape_fit_tol=1e-7,
-                 shape_fit_max_iters=10000):
+                 shape_fit_max_iters=10000,weights = None):
         """
         Constructs the Active Shape Model based on the given list of Shapes.
         :param pca_number_of_components:
@@ -194,6 +194,7 @@ class PointDistributionModel:
         permitted for gpa (Default: 10000)
         """
         self._shapes = shape_list
+        self._weights = weights
         self._use_transformation_matrix = use_transformation_matrix
         self._tangent_space_projection = project_to_tangent_space
         if not use_transformation_matrix:
@@ -302,7 +303,7 @@ class PointDistributionModel:
         error = np.sum(np.sum(np.abs(current_fit.as_numpy_matrix() - shape.as_numpy_matrix()), axis=1))
         return current_fit, error, num_iters
 
-    def _fitUsingTransformationMatrix(self, shape):
+    def _fitUsingTransformationMatrix(self, shape,weights=None):
         """
         Refer Protocol 1 - Page 9 of
          An Active Shape Model based on
@@ -314,12 +315,12 @@ class PointDistributionModel:
         """
         factors = np.zeros(self._model.get_number_of_modes())
         current_fit = self.generate(factors)
-        hmat = current_fit.get_transformation(shape)
+        hmat = current_fit.get_transformation(shape,weights)
         num_iters = 0
         for num_iters in range(self._shape_fit_max_iters):
             old_factors = factors.copy()
             current_fit = self.generate(factors)
-            hmat = current_fit.get_transformation(shape)
+            hmat = current_fit.get_transformation(shape,weights)
             if self._tangent_space_projection:
                 collapsed_shape = shape.transform(np.linalg.pinv(hmat)).project_to_tangent_space(
                     current_fit).as_collapsed_vector()
@@ -332,9 +333,9 @@ class PointDistributionModel:
         error = np.sum(np.sum(np.abs(final_shape.as_numpy_matrix() - shape.as_numpy_matrix()), axis=1))
         return final_shape, error, num_iters
 
-    def fit(self, shape,weights=None):
+    def fit(self, shape):
         if self._use_transformation_matrix:
-            return self._fitUsingTransformationMatrix(shape,weights)
+            return self._fitUsingTransformationMatrix(shape,self._weights)
         return self._fitSimple(shape)
 
 

@@ -24,18 +24,23 @@ def plot_many_lines(datalines):
     plt.show()
 
 
-def plot_shapes(shape_list, as_lines=False):
+def plot_shapes(shape_list,labels= None,as_lines=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     colors = cm.rainbow(np.linspace(0, 1, len(shape_list)))
     ci = 0
-    for shape in shape_list:
+    for index,shape in enumerate(shape_list):
         x_list, y_list = zip(*(shape.as_list_of_points()))
-        if as_lines:
-            ax.plot((-1 * np.array(x_list)).tolist(), (-1 * np.array(y_list)).tolist())
+        if labels is None:
+            lbl = str(index)
         else:
-            ax.scatter((-1 * np.array(x_list)).tolist(), (-1 * np.array(y_list)).tolist(), color=colors[ci])
+            lbl = labels[index]
+        if as_lines:
+            ax.plot((-1 * np.array(x_list)).tolist(), (-1 * np.array(y_list)).tolist(),label=lbl)
+        else:
+            ax.scatter((-1 * np.array(x_list)).tolist(), (-1 * np.array(y_list)).tolist(), color=colors[ci],label=lbl)
         ci += 1
+    plt.legend()
     plt.show()
 
 

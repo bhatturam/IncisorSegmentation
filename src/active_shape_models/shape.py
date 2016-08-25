@@ -177,7 +177,7 @@ class Shape:
         normal_slope_vector = [-tangent_slope_vector[1], tangent_slope_vector[0]]
         return np.array(tangent_slope_vector), np.array(normal_slope_vector)
 
-    def get_transformation(self, other, allow_affine=False, w=None):
+    def get_transformation(self, other, w=None):#, allow_affine=False,):
         """
         Returns the transformation matrix (homogeneous coordinates)
         to transform this shape to the other shape
@@ -202,31 +202,41 @@ class Shape:
             syyd = np.sum(np.multiply(p[:, 1], q[:, 1]))
             sxyd = np.sum(np.multiply(p[:, 0], q[:, 1]))
             syxd = np.sum(np.multiply(q[:, 1], p[:, 0]))
-            if allow_affine:
-                lhs = np.array([[sxx, sxy, sx],
-                                [sxy, syy, sy],
-                                [sx, sy, n]])
-                rhs = np.array([[sxxd, sxyd], [syxd, syyd], [sxd, syd]])
-            else:
-                lhs = np.array([[sxx + syy, 0, sx, sy],
+            lhs = np.array([[sxx + syy, 0, sx, sy],
                                 [0, sxx + syy, -sy, sx],
                                 [sx, -sy, n, 0],
                                 [sy, sx, 0, n]])
-                rhs = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
+            rhs = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
             tmat = np.dot(np.linalg.pinv(lhs), rhs)
-            if allow_affine:
-                a = tmat[0, 0]
-                b = tmat[1, 0]
-                c = tmat[0, 1]
-                d = tmat[1, 1]
-                tx = tmat[2, 0]
-                ty = tmat[2, 1]
-                return np.array([[a, c, 0], [b, d, 0], [tx, ty, 1]])
-            else:
-                a, b, tx, ty = tuple(tmat.tolist())
-                return np.array([[a, b, 0], [-b, a, 0], [tx, ty, 1]])
+            a, b, tx, ty = tuple(tmat.tolist())
+            return np.array([[a, b, 0], [-b, a, 0], [tx, ty, 1]])
+            #if allow_affine:
+            #    lhs = np.array([[sxx, sxy, sx],
+            #                    [sxy, syy, sy],
+            #                    [sx, sy, n]])
+            #    rhs = np.array([[sxxd, sxyd], [syxd, syyd], [sxd, syd]])
+            #else:
+            #    lhs = np.array([[sxx + syy, 0, sx, sy],
+            #                    [0, sxx + syy, -sy, sx],
+            #                    [sx, -sy, n, 0],
+            #                    [sy, sx, 0, n]])
+            #    rhs = np.array([sxxd + syyd, sxyd - syxd, sxd, syd])
+            
+            #if allow_affine:
+            #    a = tmat[0, 0]
+            #    b = tmat[1, 0]
+            #    c = tmat[0, 1]
+            #    d = tmat[1, 1]
+            #    tx = tmat[2, 0]
+            #    ty = tmat[2, 1]
+            #    return np.array([[a, c, 0], [b, d, 0], [tx, ty, 1]])
+            #else:
+            #    a, b, tx, ty = tuple(tmat.tolist())
+            #    return np.array([[a, b, 0], [-b, a, 0], [tx, ty, 1]])
         else:
-            W = np.sum(w)    
+            W = np.sum(w)
+            s1 = self.as_numpy_matrix()
+            s2 = other.as_numpy_matrix()
             x1 = s1[:,0]
             y1 = s1[:,1]
             x2 = s2[:,0]
@@ -235,13 +245,13 @@ class Shape:
             X2 = np.dot(w,x2)
             Y1 = np.dot(w,y1)
             Y2 = np.dot(w,y2)
-            Z = np.dot(w,np.power(x2)+np.power(y2))    
-            C1 = np.dot(w,x1*x2+y1*y2)
-            C2 = np.dot(w,y1*x2-x1*y2)
+            Z = np.dot(w,x2**2+y2**2)    
+            C1 = np.dot(w,np.multiply(x1,x2)+np.multiply(y1,y2))
+            C2 = np.dot(w,np.multiply(y1,x2)-np.multiply(x1,y2))
             A = np.array([[X2,-Y2,W,0],[Y2,X2,0,W],[Z,0,X2,Y2],[0,Z,-Y2,X2]])
             B = np.array([X1,Y1,C1,C2])
-            R=numpy.linalg.solve(A, B)
-            return np.array([[R[0],-R[1]],[R[1],R[0]]]),np.array([R[2],R[3]])
+            R=np.linalg.solve(A, B)
+            return np.array([[R[0],-R[1],0],[R[1],R[0],0],[R[2],R[3],1]])
 
     '''
     SHAPE TRANSFORMATIONS AND OPERATIONS
@@ -315,7 +325,7 @@ class Shape:
         :return: A shape aligned to other
         """
         if use_transformation_matrix:
-            return self.transform(self.get_transformation(other,weights))
+            return self.transform(self.get_transformation(other,w=weights))
         translation = other.get_centroid() - self.get_centroid()
         other_data = other.as_numpy_matrix() - other.get_centroid()
         self_data = self._data - self.get_centroid()

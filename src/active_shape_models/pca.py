@@ -46,24 +46,25 @@ class PCAModel:
         eigenvalues and eigenvectors
         """
         n, d = self._x.shape
-        # Get and decompose the covariance matrix
-
-        c = self._matrix()
-        nc, _ = c.shape
-        l, w = np.linalg.eigh(c)
-        if nc == n:
-            w = np.dot(self._x.T, w)
-
-        # Normalize the eigenvectors
-        self._w = w / np.linalg.norm(w, axis=0)
-
-        # Sort the eigenvectors according to the largest
-        # eigenvalues
+        if self._useSVD:
+            U,S,Vt = np.linalg.svd(self._x)
+            l = (S**2)/float(n-1);
+            self._w = Vt.T
+        else:            
+            c = self._matrix()
+            nc, _ = c.shape
+            l, w = np.linalg.eigh(c)
+            if nc == n:
+                w = np.dot(self._x.T, w)    
+            # Normalize the eigenvectors
+            self._w = w / np.linalg.norm(w, axis=0)    
+            # Sort the eigenvectors according to the largest
+            # eigenvalues
         indices = np.argsort(l)[::-1][:d]
         self._lambdas = l[indices]
         self._w = self._w[:, indices]
 
-    def __init__(self, x):
+    def __init__(self, x,use_SVD=True):
         """
         Constructs and fits the PCA Model with the given data matrix x
         :param x: The input data matrix
@@ -71,6 +72,7 @@ class PCAModel:
         # Compute the mean and center the matrix
         self._mean = np.mean(x, axis=0)
         self._x = x - self._mean
+        self._useSVD = use_SVD
         # Perform the fit
         self._eigen()
 
@@ -101,7 +103,7 @@ class PCAModel:
         Returns the fraction of variance captured by each PC
         :return:  The vector of the variance captured by each component
         """
-        return np.cumsum(self._lambdas / np.sum(self._lambdas))
+        return self._lambdas / np.sum(self._lambdas)
 
     def get_k_cutoff(self, variance_captured=0.9):
         """
@@ -112,7 +114,7 @@ class PCAModel:
 
         :return: The number of components
         """
-        return bisect_left(self.get_varfrac(), variance_captured)
+        return bisect_left(np.cumsum(self.get_varfrac()), variance_captured)
 
     def project(self, x=None, k=0):
         """
