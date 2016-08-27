@@ -10,7 +10,7 @@ from incisorseg.dataset import *
 from incisorseg.utils import *
 from active_shape_models.shape import *
 from active_shape_models.pca import PCAModel
-from active_shape_models.imgproc import extract_patch_normal
+from active_shape_models.imgproc import extract_patch_normal,patch_transformation_normalized_gradient_normal
 from active_shape_models.models import ModedPCAModel,PointDistributionModel
 from sklearn.decomposition import PCA
 #from scipy.stats import pearsonr)
@@ -50,9 +50,11 @@ def process(training_images,training_landmarks,test_image,test_landmark):
     #final_shape,error,num_iters = pdm.fit(test_landmark)
     #print error,num_iters
     #plot_shapes([test_landmark,final_shape],['original','model fit'])
-    pdata=np.array(extract_patch_normal(test_image,test_landmark,20,0))
+
+    pdata=np.array(extract_patch_normal(test_image,test_landmark,20,0,patch_transformation_function=patch_transformation_normalized_gradient_normal))
     imshow2(np.squeeze(pdata))
-    print pdata.shape
+    pdata2=np.array(extract_patch_normal(test_image,test_landmark,100,0,patch_transformation_function=patch_transformation_normalized_gradient_normal))
+    imshow2(np.squeeze(pdata2))
     
 
 for index,split in enumerate(LeaveOneOutSplitter(data,Dataset.ALL_TRAINING_IMAGES,Dataset.ALL_TEETH)):

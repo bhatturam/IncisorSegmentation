@@ -8,7 +8,13 @@ __author__ = "David Torrejon and Bharath Venkatesh"
 Methods for image processing
 """
 
-def extract_patch_normal(img,shape,num_pixels_length, num_pixels_width,normal_point_neighborhood=2):
+def patch_transformation_normalized_gradient_normal(data):
+    h,w = data.shape
+    result = cv2.Sobel(data,6,0,1,ksize=-1)
+    result = cv2.convertScaleAbs(result)
+    return result
+
+def extract_patch_normal(img,shape,num_pixels_length, num_pixels_width,normal_point_neighborhood=2,patch_transformation_function=None):
     h,w=img.shape 
     all_patches = []
     for point_index in range(shape.get_size()):
@@ -27,5 +33,8 @@ def extract_patch_normal(img,shape,num_pixels_length, num_pixels_width,normal_po
                 else:
                     raise ValueError("Index exceeds image dimensions")
             all_pixels.append(row_pixels)
-        all_patches.append(np.array(all_pixels))
+        patch_data  = np.array(all_pixels)
+        if patch_transformation_function is not None:
+            patch_data = patch_transformation_function(patch_data)
+        all_patches.append(patch_data)
     return all_patches
