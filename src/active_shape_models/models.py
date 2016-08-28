@@ -175,7 +175,7 @@ class PointDistributionModel:
 
     """
 
-    def __init__(self, shape_list, pca_variance_captured=0.9, pca_number_of_components=None,
+    def __init__(self, shape_list, pca_model=None,pca_variance_captured=0.9, pca_number_of_components=None,
                  use_transformation_matrix=True,
                  project_to_tangent_space=True, gpa_tol=1e-7,
                  gpa_max_iters=10000, shape_fit_tol=1e-7,
@@ -204,8 +204,16 @@ class PointDistributionModel:
         self._shape_fit_tol = shape_fit_tol
         self._shape_fit_max_iters = shape_fit_max_iters
         self._model = ModedPCAModel(self._aligned_shapes.as_collapsed_vector(), pca_variance_captured,
-                                    pca_number_of_components)
+                                    pca_number_of_components,pca_model=pca_model)
 
+
+    def get_training_error(self):
+        errors = 0
+        for shape in self._shapes:
+            _,error,_=self.fit(shape)
+            errors = errors + error
+        return errors/float(len(self._shapes))
+        
     def get_moded_pca_model(self):
         """
         Returns the underlying moded PCA Model

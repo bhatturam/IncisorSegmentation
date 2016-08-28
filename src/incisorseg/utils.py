@@ -9,10 +9,16 @@ def imshow2(img, width=12, height=12):
     plt.imshow(cv2.cvtColor(img, cv2.COLOR_GRAY2RGB))
 
 
-def plot_line(data):
+def plot_line(data,title=None,xlabel=None,ylabel=None):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.plot(range(len(data)), data)
+    if xlabel is not None:
+        plt.xlabel(xlabel)
+    if ylabel is not None:
+        plt.ylabel(ylabel)
+    if title is not None:
+        plt.title(title)
     plt.show()
 
 
