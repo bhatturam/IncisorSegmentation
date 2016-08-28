@@ -66,7 +66,8 @@ class GreyModel:
         all_grey_data = all_grey_data.reshape(npts,nimgs,ph*pw)
         self._point_models = []
         for i in range(npts):
-            self._point_models.append(GaussianModel(np.squeeze(all_grey_data[i,:,:])))
+            data = np.squeeze(all_grey_data[i,:,:])
+            self._point_models.append(GaussianModel(data))
 
     def get_size(self):
         """
@@ -82,7 +83,7 @@ class GreyModel:
         """
         return self._point_models[point_index]
     
-    def _search_point(point_model,test_patch):
+    def _search_point(self,point_model,test_patch):
         test_length = len(test_patch)
         patch_length = len(point_model.get_mean())
         errors = []
@@ -90,30 +91,37 @@ class GreyModel:
             test_subpatch = test_patch[i:(i+patch_length)]
             error,_,_ = point_model.fit(test_subpatch)
             errors.append(error)
-        return np.argmin(errors)+int(patch_length/2),errors
+        errors = np.array(errors)
+        #print test_length,patch_length,len(errors),np.argmin(np.array(errors)),np.argmin(np.array(errors))+int(patch_length/2)
+        return np.argmin(np.array(errors))+int(patch_length/2),errors
             
     
-    def search(self,test_image,starting_landmarks):
+    def search(self,test_image,starting_landmark):
         new_points = []
-        test_patches,test_points = extract_patch_normal(test_image,starting_landmark,self._search_num_pixels,self._patch_num_pixels_width,image_transformation_function=self._img_trans_func,patch_transformation_function=self._patch_trans_func)
-        npts,nimgs,ph,pw = test_patches.shape
-        test_patches = test_patches.reshape(npts,nimgs,ph*pw)
-        original_point_location = (ph*pw/2)
+        test_patches,test_points = extract_patch_normal(test_image,starting_landmark,self._search_num_pixels,self._patch_num_pixels_width,image_transformation_function=self._img_trans_func,patch_transformation_function=self._patch_trans_func)       
+        test_patches = np.array(test_patches)        
+        npts,nimgs,ph = test_patches.shape
+        #test_patches = test_patches.reshape(npts,nimgs,ph)
+        original_point_location = (ph/2)
         point_idxs = []
         displacements = []
         for index,point_model in enumerate(self._point_models):
-            new_point_idx,errors = self._search_point(point_model,test_patches[index,:])
-            displacement_idxs.append(np.abs(original_point_location-new_point_idx))
-            point_idxs.append(new_point)
+            new_point_idx,errors = self._search_point(point_model,np.squeeze(test_patches[index,:]))
+            displacements.append(np.abs(original_point_location-new_point_idx))
+            point_idxs.append(new_point_idx)
         mean_disp = np.array(displacements).mean()
-        shape_points = []        
-        for new_point in new_point_idxs:
+        shape_points = []
+        updated_point_locations = []       
+        for index,new_point in enumerate(point_idxs):
             displacement = original_point_location-new_point
             if np.abs(displacement) > mean_disp:
-                displacement = mean_disp
+                displacement = np.round(0.5*displacement)
             updated_point_location = original_point_location + displacement
-            shape_points.append(test_points[updated_point_location])
-        return Shape(np.array(shape_points))
+            updated_point_locations.append([updated_point_location,index])
+            print [updated_point_location,index]
+            point_coords = np.uint32(np.round(np.squeeze(test_points[index,updated_point_location,:]))).tolist()
+            shape_points.append(point_coords)
+        return Shape(np.array(shape_points)),updated_point_locations
 
 def process(training_images,training_landmarks,test_image,test_landmark):
     #aligned_training_landmarks = training_landmarks.align()
@@ -151,9 +159,11 @@ def process(training_images,training_landmarks,test_image,test_landmark):
     #plot_shapes([test_landmark,final_shape],['original','model fit'])
     #pdata=np.squeeze(np.array(extract_patch_normal(test_image,test_landmark,20,0,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)))
     #pdata2=np.squeeze(np.array(extract_patch_normal(test_image,test_landmark,100,0,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)))    
+    gm = GreyModel(training_images,training_landmarks,15,50,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)
     test_patches,test_points = extract_patch_normal(test_image,test_landmark,80,0,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)
+    _,points= gm.search(test_image,test_landmark)    
     #imshow2(pdata)
-    imshow2(np.array(test_patches))
+    overlay_points_on_image(np.array(test_patches),points)
 
 
 
@@ -183,7 +193,7 @@ def process(training_images,training_landmarks,test_image,test_landmark):
     
 for index,split in enumerate(LeaveOneOutSplitter(data,Dataset.ALL_TRAINING_IMAGES,Dataset.ALL_TEETH)):
     if index > 0:
-        pass#break
+        break
     training_images,training_landmarks,training_segmentations = split.get_training_set()
     test_image,test_landmark,big_test_segmentation = split.get_test_example()
     process(training_images,training_landmarks,test_image,test_landmark)
