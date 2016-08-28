@@ -4,126 +4,148 @@ Created on Wed Aug 24 23:11:34 2016
 
 @author: bharath
 """
+import cPickle as pickle
 import numpy as np
 import cv2
 from incisorseg.dataset import *
 from incisorseg.utils import *
 from active_shape_models.shape import *
-from active_shape_models.pca import PCAModel
-from active_shape_models.imgproc import extract_patch_normal
-from active_shape_models.models import GaussianModel,ModedPCAModel,PointDistributionModel
-from sklearn.decomposition import PCA
+#from active_shape_models.pca import PCAModel
+#from active_shape_models.imgproc import extract_patch_normal
+from active_shape_models.models import PointDistributionModel,GreyModel,ActiveShapeModel,AppearanceModel
+#from sklearn.decomposition import PCA
 #from scipy.stats import pearsonr)
 
-data = Dataset('../data/')
-
-
-def patch_transformation_default(data):
-    h,w = data.shape
-    result = cv2.Sobel(data,6,0,1,ksize=5)
-    result = cv2.medianBlur(cv2.convertScaleAbs(result),5)
-    return result
-
-def image_transformation_default(img):
-    #kern = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]]
-    #kern = np.array([[-1,-1,-1],[-1,8,-1],[-1,-1,-1]])
-    kern = np.array([[0,0,0],[0,1,0],[0,0,0]])
-    return cv2.filter2D(img, 0, kern)
-
-class GreyModel:
-    """ A grey level point model based on
-    Cootes, Timothy F., and Christopher J. Taylor.
-     "Active Shape Model Search using Local Grey-Level Models:
-     A Quantitative Evaluation." BMVC. Vol. 93. 1993.
-     and
-     An Active Shape Model based on
-        Cootes, Tim, E. R. Baldock, and J. Graham.
-        "An introduction to active shape models."
-        Image processing and analysis (2000): 223-248.
-
-        Attributes:
-            _point_models: The list of underlying point grey models (GaussianModel or ModedPCAModel)
-
-        Authors: David Torrejon and Bharath Venkatesh
-
-    """
-
-    def __init__(self, training_images, training_shape_list, patch_num_pixels_length,search_num_pixels,image_transformation_function,patch_transformation_function):
-        self._search_num_pixels = search_num_pixels
-        self._patch_num_pixels_length = patch_num_pixels_length
-        self._patch_num_pixels_width = 0
-        self._patch_trans_func=patch_transformation_function
-        self._img_trans_func=image_transformation_function
-        self._build_model(training_images, training_shape_list)
-        
-    def _build_model(self,training_images,training_shape_list):
-        all_patches = []
-        for i in range(len(training_images)):
-            patch,_ = extract_patch_normal(training_images[i],training_landmarks[i],20,0,image_transformation_function=self._img_trans_func,patch_transformation_function=self._patch_trans_func)
-            all_patches.append(np.array(patch))
-        all_grey_data = np.swapaxes(np.array(all_patches),0,1)
-        npts,nimgs,ph,pw = all_grey_data.shape
-        all_grey_data = all_grey_data.reshape(npts,nimgs,ph*pw)
-        self._point_models = []
-        for i in range(npts):
-            data = np.squeeze(all_grey_data[i,:,:])
-            self._point_models.append(GaussianModel(data))
-
-    def get_size(self):
-        """
-        Returns the number of grey point models - i.e the number of landmarks
-        :return: Number of point models
-        """
-        return len(self._point_models)
-
-    def get_point_grey_model(self, point_index):
-        """
-        :param point_index: The index of the landmark
-        :return: The modedPCAModel for the landmark
-        """
-        return self._point_models[point_index]
+def get_dataset(datafileprefix):
+    fname = datafileprefix + '_dataset.dat'
+    if os.path.isfile(fname):
+        f = open(fname)
+        data = pickle.load(f)
+        f.close()
+        return data
+    else:
+        data = Dataset('../data/')
+        f = open(fname, 'w')
+        pickle.dump(data,f)
+        f.close()
+        return data
     
-    def _search_point(self,point_model,test_patch):
-        test_length = len(test_patch)
-        patch_length = len(point_model.get_mean())
-        errors = []
-        for i in range(1+test_length-patch_length):
-            test_subpatch = test_patch[i:(i+patch_length)]
-            error,_,_ = point_model.fit(test_subpatch)
-            errors.append(error)
-        errors = np.array(errors)
-        #print test_length,patch_length,len(errors),np.argmin(np.array(errors)),np.argmin(np.array(errors))+int(patch_length/2)
-        return np.argmin(np.array(errors))+int(patch_length/2),errors
-            
-    
-    def search(self,test_image,starting_landmark):
-        new_points = []
-        test_patches,test_points = extract_patch_normal(test_image,starting_landmark,self._search_num_pixels,self._patch_num_pixels_width,image_transformation_function=self._img_trans_func,patch_transformation_function=self._patch_trans_func)       
-        test_patches = np.array(test_patches)        
-        npts,nimgs,ph = test_patches.shape
-        #test_patches = test_patches.reshape(npts,nimgs,ph)
-        original_point_location = (ph/2)
-        point_idxs = []
-        displacements = []
-        for index,point_model in enumerate(self._point_models):
-            new_point_idx,errors = self._search_point(point_model,np.squeeze(test_patches[index,:]))
-            displacements.append(np.abs(original_point_location-new_point_idx))
-            point_idxs.append(new_point_idx)
-        mean_disp = np.array(displacements).mean()
-        shape_points = []
-        updated_point_locations = []       
-        for index,new_point in enumerate(point_idxs):
-            displacement = original_point_location-new_point
-            if np.abs(displacement) > mean_disp:
-                displacement = np.round(0.5*displacement)
-            updated_point_location = original_point_location + displacement
-            updated_point_locations.append([updated_point_location,index])
-            print [updated_point_location,index]
-            point_coords = np.uint32(np.round(np.squeeze(test_points[index,updated_point_location,:]))).tolist()
-            shape_points.append(point_coords)
-        return Shape(np.array(shape_points)),updated_point_locations
 
-def process(training_images,training_landmarks,test_image,test_landmark):
+def get_grey_models(data,modelfileprefix,train_width):
+    fname = modelfileprefix + '_default_'+str(train_width)+'.dat'
+    if os.path.isfile(fname):
+        f = open(fname)
+        gms = pickle.load(f)
+        f.close()
+        return gms
+    else:
+        gms = []
+        for index,split in enumerate(LeaveOneOutSplitter(data,Dataset.ALL_TRAINING_IMAGES,Dataset.ALL_TEETH)):
+            training_images,training_landmarks,_ = split.get_training_set()
+            test_image,test_landmark,_ = split.get_test_example()
+            gms.append(GreyModel(training_images,training_landmarks,train_width,50))
+        f = open(fname, 'w')
+        pickle.dump(gms,f)
+        f.close()
+        return gms
+
+
+data = get_dataset('pickledata')
+gms = get_grey_models(data,'picklegms',15)
+
+#class GreyModel:
+#    """ A grey level point model based on
+#    Cootes, Timothy F., and Christopher J. Taylor.
+#     "Active Shape Model Search using Local Grey-Level Models:
+#     A Quantitative Evaluation." BMVC. Vol. 93. 1993.
+#     and
+#     An Active Shape Model based on
+#        Cootes, Tim, E. R. Baldock, and J. Graham.
+#        "An introduction to active shape models."
+#        Image processing and analysis (2000): 223-248.
+#
+#        Attributes:
+#            _point_models: The list of underlying point grey models (GaussianModel or ModedPCAModel)
+#
+#        Authors: David Torrejon and Bharath Venkatesh
+#
+#    """
+#
+#    def __init__(self, training_images, training_shape_list, patch_num_pixels_length,search_num_pixels,image_transformation_function,patch_transformation_function):
+#        self._search_num_pixels = search_num_pixels
+#        self._patch_num_pixels_length = patch_num_pixels_length
+#        self._patch_num_pixels_width = 0
+#        self._patch_trans_func=patch_transformation_function
+#        self._img_trans_func=image_transformation_function
+#        self._build_model(training_images, training_shape_list)
+#        
+#    def _build_model(self,training_images,training_shape_list):
+#        all_patches = []
+#        for i in range(len(training_images)):
+#            patch,_ = extract_patch_normal(training_images[i],training_landmarks[i],20,0,image_transformation_function=self._img_trans_func,patch_transformation_function=self._patch_trans_func)
+#            all_patches.append(np.array(patch))
+#        all_grey_data = np.swapaxes(np.array(all_patches),0,1)
+#        npts,nimgs,ph,pw = all_grey_data.shape
+#        all_grey_data = all_grey_data.reshape(npts,nimgs,ph*pw)
+#        self._point_models = []
+#        for i in range(npts):
+#            data = np.squeeze(all_grey_data[i,:,:])
+#            self._point_models.append(GaussianModel(data))
+#
+#    def get_size(self):
+#        """
+#        Returns the number of grey point models - i.e the number of landmarks
+#        :return: Number of point models
+#        """
+#        return len(self._point_models)
+#
+#    def get_point_grey_model(self, point_index):
+#        """
+#        :param point_index: The index of the landmark
+#        :return: The modedPCAModel for the landmark
+#        """
+#        return self._point_models[point_index]
+#    
+#    def _search_point(self,point_model,test_patch):
+#        test_length = len(test_patch)
+#        patch_length = len(point_model.get_mean())
+#        errors = []
+#        for i in range(1+test_length-patch_length):
+#            test_subpatch = test_patch[i:(i+patch_length)]
+#            error,_,_ = point_model.fit(test_subpatch)
+#            errors.append(error)
+#        errors = np.array(errors)
+#        new_index = np.argmin(errors)
+#        location = (new_index + int(patch_length/2))
+#        return location,errors
+#            
+#    
+#    def search(self,test_image,starting_landmark):
+#        new_points = []
+#        test_patches,test_points = extract_patch_normal(test_image,starting_landmark,self._search_num_pixels,self._patch_num_pixels_width,image_transformation_function=self._img_trans_func,patch_transformation_function=self._patch_trans_func)       
+#        test_patches = np.squeeze(np.array(test_patches))
+#        npts,ph= test_patches.shape
+#        original_point_location = int(ph/2)
+#        point_idxs = []
+#        displacements = []
+#        for index,point_model in enumerate(self._point_models):
+#            location,errors = self._search_point(point_model,np.squeeze(test_patches[index,:]))
+#            displacement = location-original_point_location
+#            displacements.append(displacement)
+#        mean_disp = np.abs(np.array(displacements)).mean()
+#        shape_points = []
+#        updated_point_locations = []       
+#        for index,displacement in enumerate(displacements):
+#            if np.abs(displacement) > mean_disp:
+#                displacement = np.sign(displacement)*np.round(mean_disp)
+#            updated_point_location = int(original_point_location + displacement)
+#            updated_point_locations.append([updated_point_location,index])
+#            point_coords = np.uint32(np.round(np.squeeze(test_points[index,updated_point_location,:]))).tolist()
+#            shape_points.append(point_coords)
+#        return Shape(np.array(shape_points)),updated_point_locations
+    
+
+def process(training_images,training_landmarks,test_image,test_landmark,gm):
     #aligned_training_landmarks = training_landmarks.align()
     #mean_shape = aligned_training_landmarks.get_mean_shape()
     #X = aligned_training_landmarks.as_collapsed_vector()
@@ -159,11 +181,12 @@ def process(training_images,training_landmarks,test_image,test_landmark):
     #plot_shapes([test_landmark,final_shape],['original','model fit'])
     #pdata=np.squeeze(np.array(extract_patch_normal(test_image,test_landmark,20,0,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)))
     #pdata2=np.squeeze(np.array(extract_patch_normal(test_image,test_landmark,100,0,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)))    
-    gm = GreyModel(training_images,training_landmarks,15,50,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)
-    test_patches,test_points = extract_patch_normal(test_image,test_landmark,80,0,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)
-    _,points= gm.search(test_image,test_landmark)    
+    #gm = GreyModel(training_images,training_landmarks,15,50,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)
+    #test_patches,test_points = extract_patch_normal(test_image,test_landmark,50,0,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)
+    #_,points= gm.search(test_image,test_landmark)    
     #imshow2(pdata)
-    overlay_points_on_image(np.array(test_patches),points)
+    #imshow2(overlay_points_on_image(np.squeeze(np.array(test_patches)),points,width=2))
+    pass
 
 
 
@@ -193,7 +216,7 @@ def process(training_images,training_landmarks,test_image,test_landmark):
     
 for index,split in enumerate(LeaveOneOutSplitter(data,Dataset.ALL_TRAINING_IMAGES,Dataset.ALL_TEETH)):
     if index > 0:
-        break
+        pass#break
     training_images,training_landmarks,training_segmentations = split.get_training_set()
     test_image,test_landmark,big_test_segmentation = split.get_test_example()
-    process(training_images,training_landmarks,test_image,test_landmark)
+    process(training_images,training_landmarks,test_image,test_landmark,gms[index])

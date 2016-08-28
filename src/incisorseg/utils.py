@@ -6,7 +6,10 @@ import cv2
 
 def imshow2(img, width=12, height=12):
     plt.figure(figsize=(width, height))
-    plt.imshow(cv2.cvtColor(img, cv2.COLOR_GRAY2RGB))
+    try:
+        plt.imshow(cv2.cvtColor(img, cv2.COLOR_GRAY2RGB))
+    except:
+        plt.imshow(img)
 
 
 def plot_line(data,title=None,xlabel=None,ylabel=None):
@@ -58,6 +61,7 @@ def overlay_shapes_on_image(img, shape_list):
 
 def overlay_points_on_image(img, points,width=10,color = (0, 255, 255),something_that_was_one=1):
     im = img.copy()
+    im = cv2.cvtColor(im, cv2.COLOR_GRAY2RGB)
     points = np.uint32(np.round(points))
     for point in points:
         cv2.circle(im, (point[0], point[1]), width, color, something_that_was_one)

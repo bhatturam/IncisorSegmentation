@@ -7,9 +7,16 @@ __author__ = "David Torrejon and Bharath Venkatesh"
 """
 Methods for image processing
 """
+def patch_transformation_default(data):
+    h,w = data.shape
+    result = cv2.Sobel(data,6,0,1,ksize=5)
+    result = cv2.medianBlur(cv2.convertScaleAbs(result),3)
+    return result
 
+def image_transformation_default(img):
+    return img
 
-def extract_patch_normal(orig_img,shape,num_pixels_length, num_pixels_width,normal_point_neighborhood=2,image_transformation_function=None,patch_transformation_function=None):
+def extract_patch_normal(orig_img,shape,num_pixels_length, num_pixels_width,normal_point_neighborhood=2,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default):
     if image_transformation_function is None:
         img=orig_img
     else:
