@@ -11,25 +11,13 @@ from incisorseg.dataset import *
 from incisorseg.utils import *
 from active_shape_models.shape import *
 #from active_shape_models.pca import PCAModel
-#from active_shape_models.imgproc import extract_patch_normal
+from active_shape_models.imgproc import extract_patch_normal, image_transformation_default, patch_transformation_default
 from active_shape_models.models import PointDistributionModel,GreyModel,ActiveShapeModel,AppearanceModel
 #from sklearn.decomposition import PCA
 #from scipy.stats import pearsonr)
 
-def get_dataset(datafileprefix):
-    fname = datafileprefix + '_dataset.dat'
-    if os.path.isfile(fname):
-        f = open(fname)
-        data = pickle.load(f)
-        f.close()
-        return data
-    else:
-        data = Dataset('../data/')
-        f = open(fname, 'w')
-        pickle.dump(data,f)
-        f.close()
-        return data
     
+data = Dataset('../data/')
 
 def get_grey_models(data,modelfileprefix,train_width):
     fname = modelfileprefix + '_default_'+str(train_width)+'.dat'
@@ -43,14 +31,13 @@ def get_grey_models(data,modelfileprefix,train_width):
         for index,split in enumerate(LeaveOneOutSplitter(data,Dataset.ALL_TRAINING_IMAGES,Dataset.ALL_TEETH)):
             training_images,training_landmarks,_ = split.get_training_set()
             test_image,test_landmark,_ = split.get_test_example()
-            gms.append(GreyModel(training_images,training_landmarks,train_width,50))
+            gms.append(GreyModel(training_images,training_landmarks,train_width,50,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default))
         f = open(fname, 'w')
         pickle.dump(gms,f)
         f.close()
         return gms
 
 
-data = get_dataset('pickledata')
 gms = get_grey_models(data,'picklegms',15)
 
 #class GreyModel:

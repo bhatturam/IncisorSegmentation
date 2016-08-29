@@ -543,18 +543,18 @@ class GreyModel:
         self._img_trans_func=image_transformation_function
         self._build_model(training_images, training_shape_list)
         
-    def _build_model(self,training_images,training_shape_list):
+    def _build_model(self,training_images,training_landmarks):
         all_patches = []
         for i in range(len(training_images)):
-            patch,_ = extract_patch_normal(training_images[i],training_landmarks[i],20,0,image_transformation_function=self._img_trans_func,patch_transformation_function=self._patch_trans_func)
+            patch,_ = extract_patch_normal(training_images[i],training_landmarks[i],self._patch_num_pixels_length,0,image_transformation_function=self._img_trans_func,patch_transformation_function=self._patch_trans_func)
             all_patches.append(np.array(patch))
         all_grey_data = np.swapaxes(np.array(all_patches),0,1)
         npts,nimgs,ph,pw = all_grey_data.shape
         all_grey_data = all_grey_data.reshape(npts,nimgs,ph*pw)
         self._point_models = []
         for i in range(npts):
-            data = np.squeeze(all_grey_data[i,:,:])
-            self._point_models.append(GaussianModel(data))
+            patch_data = np.squeeze(all_grey_data[i,:,:])
+            self._point_models.append(GaussianModel(patch_data))
     
     def set_search_width(self,search_width):
         self._search_num_pixels = search_width
