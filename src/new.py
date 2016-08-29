@@ -38,7 +38,7 @@ def get_grey_models(data,modelfileprefix,train_width):
         return gms
 
 
-gms = get_grey_models(data,'picklegms',15)
+gms = get_grey_models(data,'picklegms',20)
 
 #class GreyModel:
 #    """ A grey level point model based on
@@ -132,7 +132,7 @@ gms = get_grey_models(data,'picklegms',15)
 #        return Shape(np.array(shape_points)),updated_point_locations
     
 
-def process(training_images,training_landmarks,test_image,test_landmark,gm):
+#def process(training_images,training_landmarks,test_image,test_landmark,gm):
     #aligned_training_landmarks = training_landmarks.align()
     #mean_shape = aligned_training_landmarks.get_mean_shape()
     #X = aligned_training_landmarks.as_collapsed_vector()
@@ -173,7 +173,7 @@ def process(training_images,training_landmarks,test_image,test_landmark,gm):
     #_,points= gm.search(test_image,test_landmark)    
     #imshow2(pdata)
     #imshow2(overlay_points_on_image(np.squeeze(np.array(test_patches)),points,width=2))
-    pass
+#   pass
 
 
 
@@ -201,9 +201,66 @@ def process(training_images,training_landmarks,test_image,test_landmark,gm):
 #plot_line(a_test_errors,'PDM Fit Error on LOO-Test vs Number of Modes','Number of Modes','MSE')
     
     
+#for index,split in enumerate(LeaveOneOutSplitter(data,Dataset.ALL_TRAINING_IMAGES,Dataset.ALL_TEETH)):
+    #if index > 0:
+    #    pass#break
+    #training_images,training_landmarks,training_segmentations = split.get_training_set()
+    #test_image,test_landmark,big_test_segmentation = split.get_test_example()
+    #process(training_images,training_landmarks,test_image,test_landmark,gms[index])
+
+
+i = 0
 for index,split in enumerate(LeaveOneOutSplitter(data,Dataset.ALL_TRAINING_IMAGES,Dataset.ALL_TEETH)):
-    if index > 0:
-        pass#break
     training_images,training_landmarks,training_segmentations = split.get_training_set()
     test_image,test_landmark,big_test_segmentation = split.get_test_example()
-    process(training_images,training_landmarks,test_image,test_landmark,gms[index])
+    transformed_test_image = test_image
+    transformed_training_images = training_images
+    split_training_landmarks = tooth_splitter(training_landmarks,2)
+    all_split_training_landmarks = tooth_splitter(training_landmarks,8)
+    two_upper_teeth = all_split_training_landmarks[1]
+    two_lower_teeth = all_split_training_landmarks[5]
+    ltl=[]
+    utl = []
+    mtl = []
+    for i in range(len(all_split_training_landmarks[0])):
+        ashape = all_split_training_landmarks[1][i].concatenate(all_split_training_landmarks[2][i])
+        bshape = all_split_training_landmarks[5][i].concatenate(all_split_training_landmarks[6][i])
+        cshape = ashape.concatenate(bshape)
+        utl.append(ashape)
+        ltl.append(bshape)
+        mtl.append(cshape)
+    two_upper_teeth=ShapeList(utl)
+    two_lower_teeth=ShapeList(ltl)
+    four_middle_teeth = ShapeList(mtl)
+    shape_model = PointDistributionModel(training_landmarks,pca_variance_captured=0.99,use_transformation_matrix=True,project_to_tangent_space=True)
+    upper_shape_model = PointDistributionModel(split_training_landmarks[0],pca_variance_captured=0.99,use_transformation_matrix=True,project_to_tangent_space=True)
+    lower_shape_model = PointDistributionModel(split_training_landmarks[1],pca_variance_captured=0.99,use_transformation_matrix=True,project_to_tangent_space=True)
+    grey_model = GreyModel(training_images,training_landmarks,20,50,image_transformation_function=image_transformation_default,patch_transformation_function=patch_transformation_default)
+    active_shape_model = ActiveShapeModel(shape_model,grey_model)
+    appearance_model = AppearanceModel(transformed_training_images,shape_model,[1,1],[1.1,1.5],5)
+    upper_appearance_model = AppearanceModel(transformed_training_images,upper_shape_model,[1,1],[1.1,1.5],5)
+    lower_appearance_model = AppearanceModel(transformed_training_images,lower_shape_model,[1,1],[1.1,1.5],5)
+    centroid_shape = appearance_model.get_default_shape()
+    upper_centroid_shape = upper_appearance_model.get_default_shape()
+    lower_centroid_shape = lower_appearance_model.get_default_shape()
+    appearance_shape,val = appearance_model.fit(transformed_test_image)
+    upper_appearance_shape,upper_val = upper_appearance_model.fit(transformed_test_image)
+    lower_appearance_shape,lower_val = lower_appearance_model.fit(transformed_test_image)
+    appearance_shape2 = upper_appearance_shape.concatenate(lower_appearance_shape)
+    plot_shapes([test_landmark,centroid_shape],labels=['test_landmark','centroid initialization'])
+    plot_shapes([test_landmark,appearance_shape],labels=['test_landmark','template match initialization'])
+    plot_shapes([test_landmark,appearance_shape2],labels=['test_landmark','split template match initialization'])
+    print 'Initialization',split.get_dice_error_on_test(centroid_shape),split.get_dice_error_on_test(appearance_shape),split.get_dice_error_on_test(appearance_shape2)
+    newest_shape0,_,_ = active_shape_model.fit(transformed_test_image,initial_shape=centroid_shape,tol=0.2, max_iters=10)
+    newest_shape1,_,_ = active_shape_model.fit(transformed_test_image,initial_shape=appearance_shape,tol=0.2, max_iters=10)
+    newest_shape2,_,_ = active_shape_model.fit(transformed_test_image,initial_shape=appearance_shape2,tol=0.2, max_iters=10)
+    newest_shape3,_,_ = active_shape_model.fit(transformed_test_image,initial_shape=test_landmark,tol=0.2, max_iters=10)
+    plot_shapes([test_landmark,newest_shape0],labels=['test_landmark','asm with centroid initialization'])
+    plot_shapes([test_landmark,newest_shape1],labels=['test_landmark','asm with template match initialization'])
+    plot_shapes([test_landmark,newest_shape2],labels=['test_landmark','asm with split template match initialization'])
+    plot_shapes([test_landmark,newest_shape3],labels=['test_landmark','asm with manual initialization'])
+    print 'ASM',split.get_dice_error_on_test(newest_shape0),split.get_dice_error_on_test(newest_shape1),split.get_dice_error_on_test(newest_shape2),split.get_dice_error_on_test(newest_shape3)    
+
+    i = i+1
+    if i >= 1:
+        pass#break

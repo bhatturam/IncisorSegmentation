@@ -612,6 +612,96 @@ class GreyModel:
         return Shape(np.array(shape_points)),error_list
 
 
+#class AppearanceModel:
+    #"""
+        #An appearance model used to quickly find an initial solution using
+        #normalized cross correlation based template matching in a zone restricted
+        #by the centroid of the training shapes
+        #Attributes:
+            #_template: The template generated from the training_images
+            #_init_shape: The centroid used by the PDM for initialization
+            #_extent_scale: The [x,y] scaling factor to control the mask for template search
+
+
+        #Authors: David Torrejon and Bharath Venkatesh
+    #"""
+
+    #def _build_template(self, training_images, pdm):
+        #"""
+        #Builds the template that need to be matched
+        #:param training_images: The set of training images
+        #:param pdm: A point distribution model built from the corresponding landmarks
+        #"""
+        #landmarks = pdm.get_shapes()
+        #all_bbox = landmarks.get_mean_shape().center().scale(self._template_scale).translate(
+            #landmarks.get_mean_shape().get_centroid()).get_bounding_box()
+        #patch_size = np.squeeze(np.uint32(np.round(np.diff(all_bbox, axis=0))))
+        #datalist = []
+        #for j in range(len(landmarks)):
+            #shape_bbox = np.uint32(np.round(landmarks[j].center().scale(self._template_scale).translate(
+                #landmarks[j].get_centroid()).get_bounding_box()))
+            #cropped = training_images[j][shape_bbox[0, 1]:shape_bbox[1, 1], shape_bbox[0, 0]:shape_bbox[1, 0]]
+            #img = cv2.resize(cropped, (patch_size[0], patch_size[1]))
+            #datalist.append(img)
+        #self._template = np.uint8(np.mean(np.array(datalist), axis=0))
+
+    #def get_template(self):
+        #return self._template
+
+    #def _build_search_mask(self, test_size, corrmap_size):
+        #"""
+        #Builds a mask controlled by extent_scale to restrict the zone of template search
+        #:param test_size: The size of the test_image
+        #:return: The mask image
+        #"""
+        #if corrmap_size == test_size:
+            #mask = np.uint8(np.zeros(test_size))
+            #reccord = np.uint32(np.round(self._init_shape.get_bounding_box()))
+            #extent = np.squeeze(
+                #np.uint32(np.round(np.diff(np.float32(reccord), axis=0) / np.array(self._extent_scale))))
+            #cv2.rectangle(mask, (reccord[0, 0] - extent[0], reccord[0, 1] - extent[1]),
+                          #(reccord[0, 0] + extent[0], reccord[0, 1] + extent[1]), (255, 0, 0), -1)
+            #return mask
+        #else:
+            #hh, ww = test_size
+            #h, w = self._template.shape
+            #mask = np.uint8(np.zeros((hh - h + 1, ww - w + 1)))
+            #reccord = np.uint32(np.round(self._init_shape.get_bounding_box()))
+            #extent = np.squeeze(
+                #np.uint32(np.round(np.diff(np.float32(reccord), axis=0) / np.array(self._extent_scale))))
+            #mask[(reccord[0, 1] - extent[1]):(
+                #reccord[0, 1] + extent[1]), (reccord[0, 0] - extent[0]):(reccord[0, 0] + extent[0])] = 1
+            #return mask
+
+    #def __init__(self, training_images, pdm, extent_scale, template_scale):
+        #"""
+        #Builds an appearance model
+        #:param training_images: The set of training images
+        #:param pdm: A point distribution model built from the corresponding landmarks
+        #:param extent_scale:  The [x,y] scaling factor to control the mask for template search
+        #"""
+        #self._init_shape = pdm.get_mean_shape_projected()
+        #self._template_scale = template_scale
+        #self._build_template(training_images, pdm)
+        #self._extent_scale = extent_scale
+
+    #def fit(self, test_image):
+        #"""
+        #Perform the template matching operation to identify the initial shape
+        #:param test_image: The test image
+        #:return: Shape corressponding to the match
+        #"""
+        #h, w = self._template.shape
+        #ret = cv2.matchTemplate(test_image, self._template, method=3)
+        #mask = self._build_search_mask(test_image.shape, ret.shape)
+        #if ret.shape == test_image.shape:
+            #_, _, _, max_loc = cv2.minMaxLoc(ret, mask=mask)
+        #else:
+            #_, _, _, max_loc = cv2.minMaxLoc(np.multiply(ret,mask))
+        #translation = max_loc + np.round([w / 2.0, h / 2.0])
+        #return self._init_shape.center().translate(translation)
+
+
 class AppearanceModel:
     """
         An appearance model used to quickly find an initial solution using
@@ -644,6 +734,9 @@ class AppearanceModel:
             img = cv2.resize(cropped, (patch_size[0], patch_size[1]))
             datalist.append(img)
         self._template = np.uint8(np.mean(np.array(datalist), axis=0))
+    
+    def get_default_shape(self):
+        return self._centroid_shape
 
     def get_template(self):
         return self._template
@@ -673,7 +766,7 @@ class AppearanceModel:
                 reccord[0, 1] + extent[1]), (reccord[0, 0] - extent[0]):(reccord[0, 0] + extent[0])] = 1
             return mask
 
-    def __init__(self, training_images, pdm, extent_scale, template_scale):
+    def __init__(self, training_images, pdm, extent_scale, template_scale, metric=5):
         """
         Builds an appearance model
         :param training_images: The set of training images
@@ -684,22 +777,30 @@ class AppearanceModel:
         self._template_scale = template_scale
         self._build_template(training_images, pdm)
         self._extent_scale = extent_scale
+        self._centroid_shape = pdm.get_mean_shape_projected()
+        self._metric = metric
 
     def fit(self, test_image):
         """
         Perform the template matching operation to identify the initial shape
         :param test_image: The test image
-        :return: Shape corressponding to the match
+        :return: Shape corressponding to the match and the metric value
         """
         h, w = self._template.shape
-        ret = cv2.matchTemplate(test_image, self._template, method=3)
+        ret = cv2.matchTemplate(test_image, self._template, method=self._metric)
         mask = self._build_search_mask(test_image.shape, ret.shape)
         if ret.shape == test_image.shape:
-            _, _, _, max_loc = cv2.minMaxLoc(ret, mask=mask)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(ret, mask=mask)
         else:
-            _, _, _, max_loc = cv2.minMaxLoc(np.multiply(ret,mask))
-        translation = max_loc + np.round([w / 2.0, h / 2.0])
-        return self._init_shape.center().translate(translation)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(np.multiply(ret,mask))
+        if self._metric == 0 or self._metric == 1:
+            loc = min_loc
+            val = -min_val
+        else:
+            loc = max_loc
+            val = max_val
+        translation = loc + np.round([w / 2.0, h / 2.0])
+        return self._init_shape.center().translate(translation),val
 
 
 class ActiveShapeModel:
